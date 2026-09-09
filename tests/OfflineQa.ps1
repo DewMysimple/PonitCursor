@@ -1,4 +1,4 @@
-# Optional elevated QA: only these three test executables are blocked, in a try/finally.
+# Optional elevated QA: only these test executables are blocked, in a try/finally.
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 $bin = Join-Path $root 'build\tests'
@@ -6,7 +6,7 @@ $prefix = 'PointCursor-QA-' + [Guid]::NewGuid().ToString('N')
 $createdRules = @()
 try {
     $index = 0
-    foreach ($exe in @('PointCursor.exe','PointCursor.Reader.exe','PointCursor.Tests.exe')) {
+    foreach ($exe in @('PointCursor.exe','PointCursor.Reader.exe','PointCursor.Tests.exe','Kokoro\node.exe')) {
         $path = (Resolve-Path -LiteralPath (Join-Path $bin $exe)).Path
         $name = $prefix + '-' + $index++
         New-NetFirewallRule -Name $name -DisplayName $name -Direction Outbound -Action Block -Program $path -Profile Any -Enabled True | Out-Null

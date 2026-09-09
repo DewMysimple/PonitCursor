@@ -22,7 +22,7 @@ namespace PointCursor
             try
             {
                 if (args.Length > 0 && args[0] == "--hang") { Console.ReadLine(); Thread.Sleep(10000); return 0; }
-                Rules(); Gates(); Settings(); Audio(); KokoroBridge(); Worker().GetAwaiter().GetResult();
+                Rules(); Gates(); Settings(); Pcm(); RuntimeChecks(); Audio(); KokoroBridge(); KokoroFailures(); SapiBridge(); Worker().GetAwaiter().GetResult();
                 if (args.Length > 0 && args[0] == "--render") Render(args[1]);
                 Console.WriteLine("TOTAL: " + passed + " passed"); return 0;
             }
@@ -105,13 +105,119 @@ namespace PointCursor
                 string failure = null;
                 engine.Started += delegate { started.Set(); };
                 engine.Failed += delegate(string message) { failure = message; started.Set(); };
+                var clock = Stopwatch.StartNew(); engine.Prepare("bf_emma");
+                Check(SpinWait.SpinUntil(() => engine.IsReady || failure != null, 15000) && failure == null, "Kokoro preloads and warms silently");
+                Console.WriteLine("Kokoro warm-up ms: " + clock.ElapsedMilliseconds);
+                int workerId = engine.WorkerId;
+                for (int i = 0; i < 15; i++) { engine.Stop(); engine.Prepare("bf_emma"); }
+                clock.Restart();
                 engine.Speak("hello", "af_heart", -1, 85);
                 Check(started.WaitOne(15000) && failure == null, "Kokoro C# bridge generates and starts playback");
+                Console.WriteLine("Kokoro warm hello ms: " + clock.ElapsedMilliseconds);
+                Check(engine.WorkerId == workerId, "mouse resets preserve preloaded model");
                 started.Reset(); failure = null;
                 engine.Speak("English", "bf_emma", 0, 85);
                 Check(started.WaitOne(15000) && failure == null, "Kokoro worker reused for British voice");
                 engine.Stop();
+                string spoken = null; engine.Started += delegate(string word) { spoken = word; };
+                for (int i = 0; i < 10; i++) { engine.Speak("information", "bf_emma", 0, 85); Thread.Sleep(35); engine.Stop(); }
+                started.Reset(); clock.Restart(); engine.Speak("apple", "bf_emma", 0, 85);
+                Check(SpinWait.SpinUntil(() => spoken == "apple" || failure != null, 5000) && failure == null, "rapid changes play newest word");
+                Console.WriteLine("Kokoro newest after cancellation ms: " + clock.ElapsedMilliseconds);
+                Check(engine.WorkerId == workerId, "ordinary cancelled inference retains worker PID");
+                engine.Stop(); spoken = null; Thread.Sleep(800);
+                Check(spoken == null, "stop never publishes stale speech");
             }
+            Check(!Directory.GetDirectories(Path.GetTempPath(), "PointCursor-Kokoro-" + Process.GetCurrentProcess().Id + "-*").Any(), "Kokoro dispose removes temporary audio directory");
+        }
+        private static void SapiBridge()
+        {
+            using (var service = new SpeechService())
+            using (var started = new ManualResetEvent(false))
+            {
+                string voice = service.Voices.First(v => !service.IsKokoroVoice(v)), failure = null, spoken = null;
+                var settings = new AppSettings { Voice = voice, Volume = 85 };
+                service.Failed += delegate(string error) { failure = error; started.Set(); };
+                service.Started += delegate(long id, string word) { spoken = word; started.Set(); };
+                service.Prepare(settings); Thread.Sleep(200);
+                var clock = Stopwatch.StartNew(); service.Speak("English", settings);
+                Check(started.WaitOne(5000) && failure == null && spoken == "English", "SAPI renders through shared output");
+                Console.WriteLine("SAPI warm English ms: " + clock.ElapsedMilliseconds);
+                service.Suspend(); started.Reset(); spoken = null; Thread.Sleep(150);
+                Check(!started.WaitOne(100), "pause cancels playback");
+                service.Prepare(settings); service.Speak("apple", settings);
+                Check(started.WaitOne(5000) && failure == null && spoken == "apple", "resume reopens shared device from sample zero");
+                service.Stop();
+            }
+        }
+        private static void KokoroFailures()
+        {
+            string script = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "fault-worker.mjs");
+            string runtime = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Kokoro");
+            try
+            {
+                File.WriteAllText(script, "process.stdout.write('READY\\n'); process.stdin.resume(); setInterval(()=>{},1000);");
+                using (var output = new AudioOutput())
+                using (var engine = new KokoroSpeechEngine(runtime, output, script))
+                {
+                    engine.Prepare("af_heart"); Check(SpinWait.SpinUntil(() => engine.IsReady, 5000), "fault worker starts");
+                    int id = engine.WorkerId;
+                    engine.Speak(output.Stop(), "hello", "af_heart", 0, 85); Thread.Sleep(150);
+                    var clock = Stopwatch.StartNew(); output.Stop(); engine.Stop();
+                    Check(SpinWait.SpinUntil(() => engine.WorkerId == 0, 2500), "stuck cancelled Kokoro worker killed within grace period");
+                    Console.WriteLine("Stale worker termination ms: " + clock.ElapsedMilliseconds);
+                    engine.Prepare("af_heart"); Check(SpinWait.SpinUntil(() => engine.IsReady, 5000) && engine.WorkerId != id, "worker recovers after stuck inference");
+                }
+                File.WriteAllText(script, "process.exit(2);");
+                using (var output = new AudioOutput())
+                using (var engine = new KokoroSpeechEngine(runtime, output, script))
+                {
+                    string error = null; engine.Failed += delegate(string message) { error = message; };
+                    engine.Prepare("af_heart");
+                    Check(SpinWait.SpinUntil(() => error != null, 5000) && !engine.IsReady, "worker early exit reports recoverable failure");
+                }
+            }
+            finally { File.Delete(script); }
+        }
+        private static void Pcm()
+        {
+            var buffer = new PcmPlaybackBuffer(); var source = new byte[] { 1, 0, 2, 0, 255, 127, 0, 128 };
+            buffer.DeviceOpened(2); long ticket = buffer.Cancel(); buffer.Set(ticket, source, 100);
+            var first = new byte[6];
+            Check(buffer.Fill(first, 3) == ticket && first.SequenceEqual(new byte[] { 0, 0, 0, 0, 1, 0 }), "device guard preserves very quiet first PCM sample");
+            var rest = new byte[8]; buffer.Fill(rest, 4);
+            Check(rest.SequenceEqual(new byte[] { 2, 0, 255, 127, 0, 128, 0, 0 }), "PCM tail preserved across device buffers");
+            Check(buffer.Fill(rest, 4) == -1 && rest.All(b => b == 0), "idle renderer outputs silence");
+            long latest = buffer.Cancel();
+            Check(!buffer.Set(ticket, source, 100), "stale PCM cannot replace newest audio");
+            buffer.Set(latest, source, 100); buffer.Fill(first, 1); buffer.Cancel(); buffer.Fill(rest, 4);
+            Check(rest.All(b => b == 0), "cancellation clears remaining audio");
+            Check(RuntimeAssets.Validate(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString()), false) != null, "missing runtime diagnosed");
+        }
+        private static void RuntimeChecks()
+        {
+            string root = Path.Combine(Path.GetTempPath(), "PointCursor-integrity-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(root);
+            try
+            {
+                var lines = new List<string>();
+                for (int i = 0; i < 20; i++)
+                {
+                    string file = i + ".bin"; var bytes = new byte[] { 1, 2, 3, 4 };
+                    File.WriteAllBytes(Path.Combine(root, file), bytes);
+                    using (var sha = System.Security.Cryptography.SHA256.Create())
+                        lines.Add("4\t" + BitConverter.ToString(sha.ComputeHash(bytes)).Replace("-", "").ToLowerInvariant() + "\t" + file);
+                }
+                File.WriteAllLines(Path.Combine(root, "assets.tsv"), lines);
+                Check(RuntimeAssets.Validate(root, true) == null, "complete runtime hashes validate");
+                File.WriteAllBytes(Path.Combine(root, "0.bin"), new byte[] { 4, 3, 2, 1 });
+                Check(RuntimeAssets.Validate(root, true) != null, "same-length damaged asset detected by full diagnostic");
+                File.WriteAllText(Path.Combine(root, "0.bin"), "version https://git-lfs.github.com/spec/v1\noid sha256:example\nsize 4\n");
+                Check(RuntimeAssets.Validate(root, false) != null, "unhydrated LFS pointer rejected at startup");
+                File.Delete(Path.Combine(root, "0.bin"));
+                Check(RuntimeAssets.Validate(root, false) != null, "missing runtime file detected at startup");
+            }
+            finally { foreach (string file in Directory.GetFiles(root)) File.Delete(file); Directory.Delete(root, false); }
         }
         private static async Task Worker()
         {

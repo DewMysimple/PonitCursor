@@ -29,6 +29,11 @@ namespace PointCursor
     internal sealed class TrayApp : ApplicationContext
     {
         private readonly AppSettings settings;
+#if POINTCURSOR_QA
+        private readonly string settingsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "qa", "settings.xml");
+#else
+        private readonly string settingsPath = AppSettings.FilePath;
+#endif
         private readonly SpeechService speech;
         private readonly SelectionClient reader;
         private readonly MessageWindow messages;
@@ -49,7 +54,7 @@ namespace PointCursor
         public TrayApp(bool quiet)
         {
             bool reset;
-            settings = AppSettings.Load(AppSettings.FilePath, out reset);
+            settings = AppSettings.Load(settingsPath, out reset);
             speech = new SpeechService();
             if (!speech.Voices.Contains(settings.Voice) && speech.Voices.Count > 0) settings.Voice = speech.Voices[0];
             reader = new SelectionClient(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "PointCursor.Reader.exe"));
@@ -58,7 +63,7 @@ namespace PointCursor
             SynchronizationContext.SetSynchronizationContext(new WindowsFormsSynchronizationContext());
             SynchronizationContext ui = SynchronizationContext.Current;
             speech.Failed += delegate(string error) { ui.Post(delegate { if (!exiting) SetStatus(error); }, null); };
-            speech.Started += delegate(string word) { ui.Post(delegate { if (!exiting) SetStatus("已发音 · " + word); }, null); };
+            speech.Started += delegate(long ticket, string word) { ui.Post(delegate { if (!exiting && ticket == speech.Generation) SetStatus("已发音 · " + word); }, null); };
             input = new InputMonitor(messages.Handle);
             selectionTimer = new System.Windows.Forms.Timer { Interval = 250 };
             selectionTimer.Tick += async delegate { selectionTimer.Stop(); await ReadSelection(); };
@@ -75,7 +80,8 @@ namespace PointCursor
             menu.Items.Add("退出 PointCursor", null, delegate { ExitThread(); });
             tray = new NotifyIcon { Icon = Brand.CreateIcon(), Text = "PointCursor · 划词发音已开启", ContextMenuStrip = menu, Visible = true };
             tray.DoubleClick += delegate { ShowSettings(); };
-            if (!speech.Available) SetStatus(speech.Error);
+            speech.Prepare(settings);
+            if (speech.Error != null) SetStatus(speech.Error);
             else if (reset) SetStatus("设置文件无法读取，已使用默认设置。");
             if (!quiet) ShowSettings();
         }
@@ -158,7 +164,7 @@ namespace PointCursor
         private void SpeakOnce(string word, long ticket)
         {
             if (!selection.TryAccept(ticket)) return;
-            if (speech.Speak(word, settings)) SetStatus(speech.IsKokoroVoice(settings.Voice) ? "正在生成 · " + word : "已发音 · " + word);
+            if (speech.Speak(word, settings)) SetStatus("正在准备发音 · " + word);
             else SetStatus(speech.Error ?? "英文语音不可用。");
         }
         private void Preview()
@@ -168,6 +174,7 @@ namespace PointCursor
         private void SetPaused(bool value)
         {
             paused = value; Invalidate(true);
+            if (paused) speech.Suspend(); else speech.Prepare(settings);
             toggle.Text = paused ? "恢复划词发音" : "暂停划词发音";
             tray.Text = paused ? "PointCursor · 已暂停" : "PointCursor · 划词发音已开启";
             SetStatus(paused ? "已暂停，选词和复制都不会自动发音。" : "准备好了，选中一个英文单词试试。");
@@ -177,7 +184,7 @@ namespace PointCursor
             if (form == null || form.IsDisposed)
             {
                 form = new SettingsForm(settings, speech.Voices);
-                form.SettingsChanged += delegate { Invalidate(true); if (!settings.Save(AppSettings.FilePath)) SetStatus("设置无法保存，本次运行仍然有效。"); };
+                form.SettingsChanged += delegate { Invalidate(true); if (!paused) speech.Prepare(settings); if (!settings.Save(settingsPath)) SetStatus("设置无法保存，本次运行仍然有效。"); };
                 form.ToggleRequested += delegate { SetPaused(!paused); };
                 form.PreviewRequested += delegate { Preview(); };
                 form.ExitRequested += delegate { ExitThread(); };

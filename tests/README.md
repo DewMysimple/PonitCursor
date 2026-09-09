@@ -1,6 +1,6 @@
 # 验证方法
 
-先运行 `powershell -NoProfile -ExecutionPolicy Bypass -File .\build.ps1 -Test`。59 项常规测试不需要操作桌面；使用本机英文语音将 `hello` 合成为内存中的 WAV，不会播放测试 WAV。
+先运行 `powershell -NoProfile -ExecutionPolicy Bypass -File .\build.ps1 -Test`。87 项自动检查涵盖词规则、设置、两种语音、PCM 词头保留、预加载、快速换词、卡死恢复与退出清理；会播放几个固定的测试单词。测试版托盘程序单独编译为 `POINTCURSOR_QA`，设置仅保存到 `build/tests/qa/settings.xml`，不会覆盖使用者设置。运行桌面测试前应退出正在使用的 PointCursor，以免单实例互斥。
 
 以下集成测试会临时展示测试窗口、移动鼠标并播放英文。运行时保持桌面空闲，避免同时操作鼠标键盘。仅操作合成测试内容。脚本退出时恢复原来的前台窗口和光标位置；复制测试仅在可完整快照剪贴板时执行，结束时在剪贴板未被外部改变的情况下恢复其内容。
 
@@ -37,4 +37,19 @@ python .\tests\obsidian_live_qa.py
 
 测试 JSON 结果保存在 `build\qa`。测试只记录合成词；正式程序不写取词日志。
 
-可选的离线验证：在管理员 PowerShell 中运行 `tests\OfflineQa.ps1`。它临时为三个测试可执行文件添加出站阻止规则，执行音频及桌面测试后在 `finally` 中删除规则。只有这项测试需要管理员权限，正式程序不需要。
+可选的离线验证：在管理员 PowerShell 中运行 `tests\OfflineQa.ps1`。它临时为四个测试可执行文件（含 Kokoro/node.exe）添加出站阻止规则，执行音频及桌面测试后在 `finally` 中删除规则。只有这项测试需要管理员权限，正式程序不需要。
+
+## 音频词头回录
+
+先暂停其他软件的音频。以下测试只使用 Windows 默认输出的 loopback，不打开麦克风；回录可能包含其他软件声音，文件留在忽略的 build 目录，勿提交或分享。分析脚本需要开发机已有的 numpy，正式程序不依赖 Python。
+
+```powershell
+.\build\tests\PointCursor.AudioProbe.exe build/qa/sapi
+python tests/analyze_loopback.py build/qa/sapi
+.\build\tests\PointCursor.AudioProbe.exe build/qa/kokoro build/qa/kokoro-smoke.wav
+python tests/analyze_loopback.py build/qa/kokoro
+```
+
+每轮约 6.5 秒，比较首次和间隔后的两次播放，分别检查整词和首个有效信号起 100 毫秒的波形相关性。它验证 Windows 输出端，不能代替物理音箱或耳机试听。
+
+线程对比：`third_party/kokoro-runtime/node.exe tests/kokoro_benchmark.mjs 4`，更换末尾线程数可重测。该计时从模块导入后开始，不包含 Node 启动；完整冷启动请运行 `diagnose.ps1`。

@@ -18,6 +18,7 @@ supersedes: null
 | 2026-09-09 | feature | 把用户提供的本地 NVIDIA Kokoro 声线加入 PointCursor，形成可离线发布和选择的 Kokoro 语音后端。 | archived | integrate-kokoro-offline-voices | [[日志/2026-09-09-集成Kokoro离线语音.md|2026-09-09｜集成 Kokoro 离线语音]] |
 | 2026-09-09 | test | 在本地构建 PointCursor，并验证自动检查和便携发布包生成。 | archived | local-build-verification | [[日志/2026-09-09-本地构建验证.md|2026-09-09｜本地构建验证]] |
 | 2026-09-09 | maintenance | 按工程记忆模板建立 PointCursor 的可持续记忆，并初始化 Git 远程管理。 | archived | repository-and-memory-initialization | [[日志/2026-09-09-初始化项目与工程记忆.md|2026-09-09｜初始化项目与工程记忆]] |
+| 2026-09-09 | bug | 处理跨开发环境的语音加载迟缓、首次播报词头缺失，以及运行时维护问题。 | archived | speech-latency-onset-repair | [[日志/2026-09-09-修复语音延迟与词头播放.md|2026-09-09｜修复语音延迟与词头播放]] |
 | 2026-09-09 | bug | 解决其他开发环境克隆仓库后 Kokoro 工作进程缺少 `transformers.node.mjs`、导致 `ERR_MODULE_NOT_FOUND` 和发音失败的问题。 | archived | fix-kokoro-runtime-tracked-files | [[日志/2026-09-09-修复Kokoro运行时提交完整性.md|2026-09-09｜修复 Kokoro 运行时提交完整性]] |
 
 ## 使用方式

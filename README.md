@@ -24,10 +24,22 @@
 - Windows 11 x64、.NET Framework 4.8 和可用音频设备。Windows 系统语音是可选项；便携包已经包含 Kokoro 英文语音。
 - 运行不需要网络、账号、API 密钥、Python、另行安装 Node.js、浏览器扩展或 Obsidian 插件；无管理员权限要求。Kokoro 使用随程序发布的 Node.js、ONNX Runtime、量化模型和声线文件，运行时明确禁止远程模型下载。
 - 默认 Zira 不可用时，可选择 Kokoro 或其他已安装的英文系统语音。安装新的 Windows 系统语音后需要重启 PointCursor 才会刷新列表。
-- 第一次使用 Kokoro 时需要加载约 88 MiB 的量化模型，可能等待数秒；同一次运行中的后续发音会复用已加载的工作进程。新选词会停止旧音频，若模型仍在生成则终止旧工作进程。
+- 选择 Kokoro 后会在后台加载约 88 MiB 模型并静默预热；刚启动时可能需要约 1～3 秒，之后复用模型。新选词立即使旧音频失效，只保留最新待合成词；普通旧推理完成后丢弃结果，取消后仍卡住超过约 1 秒才终止工作进程。
 - 无需改变 Obsidian 的启动参数。浏览器第一次建立辅助功能信息时可能稍慢，未成功时可再选一次或按 Ctrl+C。
 - 应用对辅助功能接口的支持决定兼容性。管理员权限软件、扫描图片、PDF、特殊插件视图和多屏不同缩放比例未作完整适配；详见 `COMPATIBILITY.md`。
 - 发音由所选 Windows 或 Kokoro 后端按独立单词合成；同形异音词不会结合上下文判断读音。跨多个格式片段的选区会保守跳过，避免把整句里的某一部分当作单词。
+
+## 语音故障排查
+
+在解压后的程序目录执行：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\diagnose.ps1
+```
+
+诊断会校验 290 个运行时文件的大小和 SHA-256，并用固定的 `hello` 测试 Windows 与 Kokoro 合成，不播放声音、不修改设置。缺失或损坏会指出具体文件。源码环境先执行 `git lfs pull`，再重新构建；便携包用户重新完整解压，避免只替换 EXE。
+
+如果仍听到词头缺失，先在 Windows 中确认默认播放设备，再分别试听 Windows 和 Kokoro。程序的系统输出回录已经验证词头完整，但回录不能证明蓝牙耳机、显示器音箱等硬件最终发出的声音；设备类型和容易复现的词有助于进一步定位。
 
 ## 本地数据
 
@@ -45,7 +57,7 @@
 powershell -NoProfile -ExecutionPolicy Bypass -File .\build.ps1 -Test -Package
 ```
 
-使用 Windows 自带的 .NET Framework C# 编译器和系统程序集，不下载 NuGet 或 npm 包。Kokoro 运行时位于 `third_party\kokoro-runtime`，模型、声线、Node.js 和原生 ONNX Runtime 由 Git LFS 管理，JavaScript 编译产物也随仓库提交；因此首次克隆源码前需安装 Git LFS 并执行 `git lfs pull`，再确保整个运行时目录完整。
+使用 Windows 自带的 .NET Framework C# 编译器和系统程序集，不下载 NuGet 或 npm 包。Kokoro 运行时位于 `third_party\kokoro-runtime`，模型、声线、Node.js 和原生 ONNX Runtime 由 Git LFS 管理，JavaScript 编译产物也随仓库提交；因此首次克隆源码前需安装 Git LFS 并执行 `git lfs pull`，再确保整个运行时目录完整。构建会对照 `assets.tsv` 检查全部文件；运行时文本固定 LF 换行，避免换机检出后的哈希变化。维护者有意更新运行时后，运行 `python tools/runtime_manifest.py` 刷新清单并一同提交。
 
 - 可运行目录：`dist\PointCursor`
 - 便携压缩包：`dist\PointCursor-Windows-x64.zip`
@@ -56,7 +68,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\build.ps1 -Test -Package
 
 ## 实现概要
 
-C# 5 / .NET Framework 4.8 / WinForms；UI Automation 优先读取选区，Obsidian 等 Electron 软件补充 MSAA / IAccessible2。Windows 语音由 `System.Speech` 异步播放；Kokoro 由独立本地工作进程执行音素转换和 ONNX 推理，生成临时 WAV 后播放，退出时清理。全局输入监听只识别选择动作与 Ctrl+C，所有耗时取词在独立进程中完成。
+C# 5 / .NET Framework 4.8 / WinForms；UI Automation 优先读取选区，Obsidian 等 Electron 软件补充 MSAA / IAccessible2。Windows 语音由 `System.Speech` 在后台合成为内存 PCM；Kokoro 由独立本地工作进程执行音素转换和 ONNX 推理，生成 PCM16 临时 WAV，读入内存后立即删除。两者共用 24 kHz 单声道 WASAPI 播放通道，保留全部原始采样，不裁剪弱辅音或词头静音。启用期间通道持续输出静音待命；新开设备时先输出约 150 毫秒静音，普通选词不额外添加此等待。暂停会释放播放设备，恢复时重新准备。全局输入监听只识别选择动作与 Ctrl+C，所有耗时取词在独立进程中完成。
 
 Kokoro 模型、声线和运行时的来源、版本、许可证及哈希见 `third_party\kokoro-runtime\THIRD-PARTY-NOTICES.md`。
 
