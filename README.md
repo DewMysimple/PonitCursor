@@ -45,7 +45,7 @@
 powershell -NoProfile -ExecutionPolicy Bypass -File .\build.ps1 -Test -Package
 ```
 
-使用 Windows 自带的 .NET Framework C# 编译器和系统程序集，不下载 NuGet 或 npm 包。Kokoro 运行时位于 `third_party\kokoro-runtime`，大文件由 Git LFS 管理，因此首次克隆源码前需安装 Git LFS 并确保模型和二进制已完整拉取。
+使用 Windows 自带的 .NET Framework C# 编译器和系统程序集，不下载 NuGet 或 npm 包。Kokoro 运行时位于 `third_party\kokoro-runtime`，模型、声线、Node.js 和原生 ONNX Runtime 由 Git LFS 管理，JavaScript 编译产物也随仓库提交；因此首次克隆源码前需安装 Git LFS 并执行 `git lfs pull`，再确保整个运行时目录完整。
 
 - 可运行目录：`dist\PointCursor`
 - 便携压缩包：`dist\PointCursor-Windows-x64.zip`

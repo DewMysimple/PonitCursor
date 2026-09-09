@@ -9,7 +9,22 @@ if (-not $speech) { throw 'System.Speech is required.' }
 $out = Join-Path $root 'dist\PointCursor'
 New-Item -ItemType Directory -Force -Path $out | Out-Null
 $kokoroSource = Join-Path $root 'third_party\kokoro-runtime'
-$kokoroRequired = @('node.exe','worker.mjs','lib\kokoro.js','model\config.json','model\tokenizer.json','model\onnx\model_quantized.onnx','voices\af_heart.bin')
+$kokoroRequired = @(
+    'node.exe',
+    'worker.mjs',
+    'lib\kokoro.js',
+    'model\config.json',
+    'model\tokenizer.json',
+    'model\onnx\model_quantized.onnx',
+    'voices\af_heart.bin',
+    'node_modules\@huggingface\transformers\package.json',
+    'node_modules\@huggingface\transformers\dist\transformers.node.mjs',
+    'node_modules\onnxruntime-common\dist\esm\index.js',
+    'node_modules\onnxruntime-node\dist\index.js',
+    'node_modules\onnxruntime-node\bin\napi-v3\win32\x64\onnxruntime_binding.node',
+    'node_modules\onnxruntime-node\bin\napi-v3\win32\x64\onnxruntime.dll',
+    'node_modules\phonemizer\dist\phonemizer.js'
+)
 foreach ($relative in $kokoroRequired) { if (-not (Test-Path -LiteralPath (Join-Path $kokoroSource $relative))) { throw ('Kokoro runtime file is required: ' + $relative) } }
 $common = @('/nologo','/optimize+','/platform:x64','/warn:4','/utf8output',('/r:' + (Join-Path $framework 'System.dll')),('/r:' + (Join-Path $framework 'System.Core.dll')))
 function Compile([string[]]$CompilerArgs) {

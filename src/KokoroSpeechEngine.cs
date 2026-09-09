@@ -33,6 +33,12 @@ namespace PointCursor
                     && File.Exists(Path.Combine(modelPath, "tokenizer.json"))
                     && File.Exists(Path.Combine(modelPath, "onnx", "model_quantized.onnx"))
                     && File.Exists(Path.Combine(root, "node_modules", "@huggingface", "transformers", "package.json"))
+                    && File.Exists(Path.Combine(root, "node_modules", "@huggingface", "transformers", "dist", "transformers.node.mjs"))
+                    && File.Exists(Path.Combine(root, "node_modules", "onnxruntime-common", "dist", "esm", "index.js"))
+                    && File.Exists(Path.Combine(root, "node_modules", "onnxruntime-node", "dist", "index.js"))
+                    && File.Exists(Path.Combine(root, "node_modules", "onnxruntime-node", "bin", "napi-v3", "win32", "x64", "onnxruntime_binding.node"))
+                    && File.Exists(Path.Combine(root, "node_modules", "onnxruntime-node", "bin", "napi-v3", "win32", "x64", "onnxruntime.dll"))
+                    && File.Exists(Path.Combine(root, "node_modules", "phonemizer", "dist", "phonemizer.js"))
                     && Directory.Exists(voicesPath);
             }
         }
