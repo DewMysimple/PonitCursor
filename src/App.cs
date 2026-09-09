@@ -58,6 +58,7 @@ namespace PointCursor
             SynchronizationContext.SetSynchronizationContext(new WindowsFormsSynchronizationContext());
             SynchronizationContext ui = SynchronizationContext.Current;
             speech.Failed += delegate(string error) { ui.Post(delegate { if (!exiting) SetStatus(error); }, null); };
+            speech.Started += delegate(string word) { ui.Post(delegate { if (!exiting) SetStatus("已发音 · " + word); }, null); };
             input = new InputMonitor(messages.Handle);
             selectionTimer = new System.Windows.Forms.Timer { Interval = 250 };
             selectionTimer.Tick += async delegate { selectionTimer.Stop(); await ReadSelection(); };
@@ -157,11 +158,11 @@ namespace PointCursor
         private void SpeakOnce(string word, long ticket)
         {
             if (!selection.TryAccept(ticket)) return;
-            if (speech.Speak(word, settings)) SetStatus("已发音 · " + word);
+            if (speech.Speak(word, settings)) SetStatus(speech.IsKokoroVoice(settings.Voice) ? "正在生成 · " + word : "已发音 · " + word);
             else SetStatus(speech.Error ?? "英文语音不可用。");
         }
         private void Preview()
-        { Invalidate(true); if (speech.Speak("hello", settings)) SetStatus("试听 · hello"); else SetStatus(speech.Error ?? "英文语音不可用。"); }
+        { Invalidate(true); if (speech.Speak("hello", settings)) SetStatus(speech.IsKokoroVoice(settings.Voice) ? "正在生成试听 · hello" : "试听 · hello"); else SetStatus(speech.Error ?? "英文语音不可用。"); }
         private void SetStatus(string value)
         { status = value; if (form != null && !form.IsDisposed) form.UpdateStatus(status, paused); }
         private void SetPaused(bool value)

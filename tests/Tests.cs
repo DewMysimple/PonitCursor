@@ -22,7 +22,7 @@ namespace PointCursor
             try
             {
                 if (args.Length > 0 && args[0] == "--hang") { Console.ReadLine(); Thread.Sleep(10000); return 0; }
-                Rules(); Gates(); Settings(); Audio(); Worker().GetAwaiter().GetResult();
+                Rules(); Gates(); Settings(); Audio(); KokoroBridge(); Worker().GetAwaiter().GetResult();
                 if (args.Length > 0 && args[0] == "--render") Render(args[1]);
                 Console.WriteLine("TOTAL: " + passed + " passed"); return 0;
             }
@@ -89,7 +89,28 @@ namespace PointCursor
             }
             using (var service = new SpeechService())
             {
+                string[] kokoro = service.Voices.Where(v => v.StartsWith("Kokoro · ", StringComparison.Ordinal)).ToArray();
+                Check(kokoro.Length == 28, "Kokoro English voices discovered");
+                Check(kokoro.Any(v => v.Contains("af_heart")) && kokoro.Any(v => v.Contains("bm_george")), "Kokoro American and British voices listed");
+                Check(Math.Abs(KokoroSpeechEngine.RateToSpeed(-5) - 0.6) < 0.001 && Math.Abs(KokoroSpeechEngine.RateToSpeed(5) - 1.4) < 0.001, "Kokoro rate mapping bounded");
                 service.Voices.Clear(); Check(!service.Available && !service.Speak("hello", new AppSettings()), "missing English voice handled without playback");
+            }
+        }
+        private static void KokoroBridge()
+        {
+            string runtime = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Kokoro");
+            using (var engine = new KokoroSpeechEngine(runtime))
+            using (var started = new ManualResetEvent(false))
+            {
+                string failure = null;
+                engine.Started += delegate { started.Set(); };
+                engine.Failed += delegate(string message) { failure = message; started.Set(); };
+                engine.Speak("hello", "af_heart", -1, 85);
+                Check(started.WaitOne(15000) && failure == null, "Kokoro C# bridge generates and starts playback");
+                started.Reset(); failure = null;
+                engine.Speak("English", "bf_emma", 0, 85);
+                Check(started.WaitOne(15000) && failure == null, "Kokoro worker reused for British voice");
+                engine.Stop();
             }
         }
         private static async Task Worker()
@@ -125,7 +146,8 @@ namespace PointCursor
         private static void Render(string path)
         {
             Application.EnableVisualStyles();
-            using (var form = new SettingsForm(new AppSettings(), new List<string> { "Microsoft Zira Desktop" }))
+            using (var service = new SpeechService())
+            using (var form = new SettingsForm(new AppSettings { Voice = service.Voices.First(v => v.StartsWith("Kokoro · ", StringComparison.Ordinal)) }, service.Voices))
             {
                 form.UpdateStatus("准备好了，选中一个英文单词试试。", false);
                 form.StartPosition = FormStartPosition.Manual; form.Location = new Point(-10000, -10000);
