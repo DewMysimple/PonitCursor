@@ -15,6 +15,7 @@ supersedes: null
 
 | 时间 | 类型 | 目标 | 状态 | 主题 | 日志 |
 | --- | --- | --- | --- | --- | --- |
+| 2026-09-09 | test | 在本地构建 PointCursor，并验证自动检查和便携发布包生成。 | archived | local-build-verification | [[日志/2026-09-09-本地构建验证.md|2026-09-09｜本地构建验证]] |
 | 2026-09-09 | maintenance | 按工程记忆模板建立 PointCursor 的可持续记忆，并初始化 Git 远程管理。 | archived | repository-and-memory-initialization | [[日志/2026-09-09-初始化项目与工程记忆.md|2026-09-09｜初始化项目与工程记忆]] |
 
 ## 使用方式
