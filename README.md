@@ -57,6 +57,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\diagnose.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File .\build.ps1 -Test -Package
 ```
 
+也可直接双击仓库根目录的 `buildStart.cmd`，默认重新构建并生成下列两个发布产物；从命令行运行 `buildStart.cmd -Test` 时会额外执行完整自动测试。
+
 使用 Windows 自带的 .NET Framework C# 编译器和系统程序集，不下载 NuGet 或 npm 包。Kokoro 运行时位于 `third_party\kokoro-runtime`，模型、声线、Node.js 和原生 ONNX Runtime 由 Git LFS 管理，JavaScript 编译产物也随仓库提交；因此首次克隆源码前需安装 Git LFS 并执行 `git lfs pull`，再确保整个运行时目录完整。构建会对照 `assets.tsv` 检查全部文件；运行时文本固定 LF 换行，避免换机检出后的哈希变化。维护者有意更新运行时后，运行 `python tools/runtime_manifest.py` 刷新清单并一同提交。
 
 - 可运行目录：`dist\PointCursor`
