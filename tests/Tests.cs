@@ -34,6 +34,16 @@ namespace PointCursor
             Check(WordRules.Normalize(" \r\n\u201cHello!\u201d \t") == "Hello", "surrounding punctuation");
             Check(WordRules.Normalize("don\u2019t") == "don't", "curly apostrophe");
             foreach (string input in new[] { null, "", " ", "hello world", "hello\nworld", "123", "abc123", "中文", "hello中文", "example.com", "https://example.com", "a@b.com", "file/path", "foo_bar", "a+b", "a--b", "a''b", "-word-", "🐈", new string('a', 65), new string(' ', 129) + "hello" }) Check(WordRules.Normalize(input) == null, "reject " + (input == null ? "null" : input.Length > 30 ? "overlength" : input));
+            Check(WordRules.NormalizeGesture("==hello==", "==hello== world") == "hello", "highlight wrapper after gesture");
+            Check(WordRules.NormalizeGesture("hell", "==hello== world") == "hello", "highlight offset shift after gesture");
+            Check(WordRules.NormalizeGesture("=hel", "==hello== world") == "hello", "partial highlight marker after gesture");
+            Check(WordRules.NormalizeGesture("hello world", "==hello== world") == null, "highlight context does not crop multiple words");
+            Check(WordRules.NormalizeGesture("world", "==hello== world") == "world", "unrelated highlight does not replace gesture word");
+            Check(WordRules.ReconcileGesture("hell", "hello world", "hello") == "hello", "enclosing word restores shifted final letter");
+            Check(WordRules.ReconcileGesture("=hel", "hello world", "hello") == "hello", "enclosing word restores marker-shifted word");
+            Check(WordRules.ReconcileGesture("h", "hello", "hello") == "hello", "single accessible word restores source-mode highlight shift");
+            Check(WordRules.ReconcileGesture("he", "hello world", "hello") == "he", "enclosing word does not expand distant fragment");
+            Check(WordRules.ReconcileGesture("hello world", "hello world", "hello") == null, "enclosing word does not crop multiple words");
         }
         private static void Gates()
         {

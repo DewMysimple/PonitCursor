@@ -9,6 +9,7 @@ namespace PointCursor
     public static class WordRules
     {
         private static readonly Regex Word = new Regex(@"\A[A-Za-z]+(?:['\u2019-][A-Za-z]+)*\z", RegexOptions.CultureInvariant);
+        private static readonly Regex HighlightedWord = new Regex(@"==(?<word>[A-Za-z]+(?:['\u2019-][A-Za-z]+)*)==", RegexOptions.CultureInvariant);
         // Explicit surrounding punctuation: do not turn URLs, paths, code, or email into words.
         private static readonly char[] Edges = " \t\r\n.,!?;:\"'\u2018\u2019\u201c\u201d()[]{}<>\u300a\u300b\u3002\uff0c\uff01\uff1f\uff1b\uff1a".ToCharArray();
         public static string Normalize(string input)
@@ -16,6 +17,42 @@ namespace PointCursor
             if (String.IsNullOrWhiteSpace(input) || input.Length > 128) return null;
             string text = input.Trim(Edges);
             return text.Length > 0 && text.Length <= 64 && Word.IsMatch(text) ? text.Replace('\u2019', '\'') : null;
+        }
+        public static string NormalizeGesture(string input, string context)
+        {
+            // Obsidian may expose Markdown markers during the same accessibility
+            // query that follows a completed selection gesture.
+            if (!String.IsNullOrWhiteSpace(input) && input.Length <= 128 && !String.IsNullOrEmpty(context) && context.Length <= 2048)
+            {
+                string fragment = Normalize(input.Trim(Edges).Trim('='));
+                if (fragment != null)
+                {
+                    foreach (Match match in HighlightedWord.Matches(context))
+                    {
+                        string candidate = Normalize(match.Groups["word"].Value);
+                        if (candidate != null && (String.Equals(candidate, fragment, StringComparison.Ordinal)
+                            || (candidate.Length > fragment.Length && candidate.Length - fragment.Length <= 2
+                                && (candidate.StartsWith(fragment, StringComparison.Ordinal) || candidate.EndsWith(fragment, StringComparison.Ordinal)))))
+                            return candidate;
+                    }
+                }
+            }
+            return Normalize(input);
+        }
+        public static string ReconcileGesture(string input, string context, string enclosing)
+        {
+            // In source mode the newly inserted leading "==" moves the old screen
+            // endpoints into the selected word. Prefer the enclosing accessible word
+            // when the raw fragment is compatible; never crop a multi-word range.
+            string selected = NormalizeGesture(input, context);
+            if (selected == null && !String.IsNullOrWhiteSpace(input) && input.Length <= 128)
+                selected = Normalize(input.Trim(Edges).Trim('='));
+            string candidate = Normalize(enclosing);
+            if (selected != null && candidate != null && candidate.Length >= selected.Length
+                && (candidate.Length - selected.Length <= 2 || String.Equals(Normalize(context), candidate, StringComparison.Ordinal))
+                && (candidate.StartsWith(selected, StringComparison.Ordinal) || candidate.EndsWith(selected, StringComparison.Ordinal)))
+                return candidate;
+            return selected;
         }
     }
 

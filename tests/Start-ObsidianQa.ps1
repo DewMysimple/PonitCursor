@@ -12,6 +12,7 @@ $config = @{ vaults = @{ '0123456789abcdef' = @{ path = $vault; ts = [DateTimeOf
 $note = "# PointCursor pronunciation test`n`nhello world`n`nwell-known don't English`n`nThis is a synthetic test note.`n"
 [IO.File]::WriteAllText((Join-Path $vault 'Pronunciation.md'), $note, $utf8)
 [IO.File]::WriteAllText((Join-Path $vault '.obsidian\app.json'), '{"legacyEditor":false,"livePreview":true,"showInlineTitle":false}', $utf8)
+[IO.File]::WriteAllText((Join-Path $vault '.obsidian\hotkeys.json'), '{"editor:toggle-highlight":[{"modifiers":["Mod","Shift"],"key":"H"}]}', $utf8)
 # Copy only a public application update, never user settings, notes, plugins or secrets.
 $updatedApp = Get-ChildItem -LiteralPath (Join-Path $env:APPDATA 'obsidian') -Filter 'obsidian-*.asar' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
 if ($updatedApp) { Copy-Item -LiteralPath $updatedApp.FullName -Destination $profile -Force }

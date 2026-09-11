@@ -1,6 +1,6 @@
 # 验证方法
 
-先运行 `powershell -NoProfile -ExecutionPolicy Bypass -File .\build.ps1 -Test`。89 项自动检查涵盖词规则、设置、两种语音、Zira 同词重复请求、PCM 词头保留、预加载、快速换词、卡死恢复与退出清理；会播放几个固定的测试单词。测试版托盘程序单独编译为 `POINTCURSOR_QA`，使用独立单实例互斥，设置仅保存到 `build/tests/qa/settings.xml`，不会覆盖或要求退出正在使用的正式版 PointCursor。
+先运行 `powershell -NoProfile -ExecutionPolicy Bypass -File .\build.ps1 -Test`。99 项自动检查涵盖词规则、Obsidian 高亮重写校正、设置、两种语音、Zira 同词重复请求、PCM 词头保留、预加载、快速换词、卡死恢复与退出清理；会播放几个固定的测试单词。测试版托盘程序单独编译为 `POINTCURSOR_QA`，使用独立单实例互斥，设置仅保存到 `build/tests/qa/settings.xml`，不会覆盖或要求退出正在使用的正式版 PointCursor。
 
 以下集成测试会临时展示测试窗口、移动鼠标并播放英文。运行时保持桌面空闲，避免同时操作鼠标键盘。仅操作合成测试内容。脚本退出时恢复原来的前台窗口和光标位置；复制测试仅在可完整快照剪贴板时执行，结束时在剪贴板未被外部改变的情况下恢复其内容。
 
@@ -27,7 +27,7 @@ python .\tests\obsidian_live_qa.py
 "require('electron').remote.app.quit()" | node .\tests\cdp_eval.mjs
 ```
 
-所有配置和测试库在 `build\qa`，不会写入日常 Obsidian 库。第一次由 Obsidian 打开测试 Markdown 时可能统一文件换行；正式选区回归测试记录的是打开后的文件哈希。
+所有配置和测试库在 `build\qa`，不会写入日常 Obsidian 库。启动脚本只在该隔离库中把 Ctrl+Shift+H 绑定为 Obsidian 的高亮命令；实时交互测试覆盖“拖选后立即高亮”，规则测试覆盖高亮重写后只读到 `hell`／`h` 时恢复完整 `hello`。第一次由 Obsidian 打开测试 Markdown 时可能统一文件换行；正式选区回归测试记录的是打开后的文件哈希。
 
 渲染设置窗口供检查：
 

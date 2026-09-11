@@ -4,12 +4,12 @@
 
 ## 开始使用
 
-1. 解压 `PointCursor.zip`；压缩包内已经是完整的 `PointCursor` 软件目录，请保留整个文件夹。
+1. 把 `PointCursor.zip` 解压到一个空文件夹；ZIP 根层直接包含 `PointCursor.exe`、`Kokoro/` 等程序文件，不再额外套一层 `PointCursor` 子目录，请保持这些文件的相对位置不变。
 2. 双击 `PointCursor.exe`。默认启用划词发音；可使用 Microsoft Zira 等 Windows 系统语音，也可在设置中选择内置 Kokoro 神经语音。
 3. 回到 Obsidian，**双击或拖选** `hello`、`English` 等英文单词，松开鼠标即可听到读音。
 4. 未能自动取词时，保持选中，按 **Ctrl+C**。关闭设置窗口后，程序继续在系统托盘运行；托盘图标可能在任务栏右侧的隐藏图标区域。
 
-只选中单个词；整句、中文、数字和网址会被忽略。`don't`、`well-known` 可读。单击放置光标、鼠标悬停、文档里原有的黄色标记不会触发发音。重新选中同一个词或对同一选区再次按 Ctrl+C 都可以重听。程序取得单词后，普通鼠标、键盘、光标或托盘窗口状态变化不会再丢弃该词或截断已经开始的读音。
+只选中单个词；整句、中文、数字和网址会被忽略。`don't`、`well-known` 可读。单击放置光标、鼠标悬停、文档里原有的黄色标记不会触发发音。选词后立即按 Obsidian 的 **Ctrl+Shift+H** 高亮，即使文字马上被改写成 `==word==`，仍会播报刚才选中的完整单词。重新选中同一个词或对同一选区再次按 Ctrl+C 都可以重听。程序取得单词后，普通鼠标、键盘、光标或托盘窗口状态变化不会再丢弃该词或截断已经开始的读音。
 
 ## 设置
 
@@ -62,7 +62,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\build.ps1 -Test -Package
 使用 Windows 自带的 .NET Framework C# 编译器和系统程序集，不下载 NuGet 或 npm 包。Kokoro 运行时位于 `third_party\kokoro-runtime`，模型、声线、Node.js 和原生 ONNX Runtime 由 Git LFS 管理，JavaScript 编译产物也随仓库提交；因此首次克隆源码前需安装 Git LFS 并执行 `git lfs pull`，再确保整个运行时目录完整。构建会对照 `assets.tsv` 检查全部文件；运行时文本固定 LF 换行，避免换机检出后的哈希变化。维护者有意更新运行时后，运行 `python tools/runtime_manifest.py` 刷新清单并一同提交。
 
 - 可运行目录：`dist\PointCursor`
-- 便携压缩包：`dist\PointCursor.zip`（解压后得到 `PointCursor` 软件目录）
+- 便携压缩包：`dist\PointCursor.zip`（ZIP 根层就是程序根目录，不包含额外的 `PointCursor/` 包装目录）
 - 自动测试与桌面测试程序：`build\tests`
 - 测试截图和验证结果：`build\qa`
 

@@ -18,6 +18,16 @@ def select(line, start, end):
       const r=window.getSelection().getRangeAt(0).getBoundingClientRect();return{x:r.x,y:r.y,width:r.width,height:r.height,scale:devicePixelRatio};
     })()""".replace('LINE',str(line)).replace('START',str(start)).replace('END',str(end)))
 
+def chord(*codes):
+    for code in codes:q.key(code)
+    for code in reversed(codes):q.key(code,True)
+
+def clear_selection(mode):
+    if mode == 'reading':
+        evaluate("window.getSelection().removeAllRanges();true")
+    else:
+        evaluate("app.workspace.activeLeaf.view.editor.setCursor({line:0,ch:0});true")
+
 def main():
     previous=q.u.GetForegroundWindow();cursor=W.POINT();q.u.GetCursorPos(C.byref(cursor))
     app=None;aw=None;snapshot=None;sequence=None;results=[]
@@ -27,18 +37,34 @@ def main():
         pause=next(h for h in q.windows(aw) if q.text(h)=='暂停')
         snapshot=q.clipboard_snapshot()
         for mode,state in [('live-preview',{'mode':'source','source':False}),('source',{'mode':'source','source':True}),('reading',{'mode':'preview'})]:
+            mode_results_start=len(results)
             q.u.SendMessageW(pause,0xF5,0,0);q.u.SendMessageW(pause,0xF5,0,0)
             evaluate("(async()=>{await app.workspace.activeLeaf.setViewState({type:'markdown',state:"+json.dumps({'file':'Pronunciation.md',**state})+"});return true;})()")
             q.foreground(hwnd);time.sleep(.15)
             def coordinates(r):
                 pt=W.POINT(0,0);q.u.ClientToScreen.argtypes=[W.HWND,C.POINTER(W.POINT)];q.u.ClientToScreen(hwnd,C.byref(pt))
                 return pt.x+r['x']*r['scale'],pt.y+(r['y']+r['height']/2)*r['scale']
-            r=select(2,0,5);x,y=coordinates(r);clock=time.monotonic();q.click(x+8,y,True)
+            if mode != 'reading':
+                # Run this first so it also covers a cold selection-reader process.
+                # Finish a native drag and invoke the user's Obsidian shortcut before
+                # PointCursor can rely on the live selection staying unchanged.
+                original=evaluate("app.workspace.activeLeaf.view.editor.getValue()")
+                r=select(2,0,5);x,y=coordinates(r);clear_selection(mode);time.sleep(.1)
+                hello_count=q.pronunciation_count(aw,'hello')
+                q.drag(x+1,y,x+r['width']-1,y)
+                chord(0x11,0x10,0x48)
+                q.wait(lambda:'==hello==' in evaluate("app.workspace.activeLeaf.view.editor.getLine(2)"),3)
+                q.wait(lambda:q.pronunciation_count(aw,'hello')>hello_count,3)
+                results.append({'mode':mode,'case':'drag-then-highlight','passed':True})
+                chord(0x11,0x5A)
+                q.wait(lambda:evaluate("app.workspace.activeLeaf.view.editor.getValue()")==original,3)
+            r=select(2,0,5);x,y=coordinates(r);clear_selection(mode);time.sleep(.05)
+            clock=time.monotonic();q.click(x+8,y,True)
             q.wait(lambda:any(value.startswith('已发音 · hello') for value in q.status(aw)),3)
             results.append({'mode':mode,'case':'double-click','passed':True,'ms':round((time.monotonic()-clock)*1000)})
             r=select(2,6,11);x,y=coordinates(r)
             # Clear the script-created selection before exercising native mouse dragging.
-            q.click(x+2,y);time.sleep(.1);q.drag(x+1,y,x+r['width']-1,y)
+            clear_selection(mode);time.sleep(.1);q.drag(x+1,y,x+r['width']-1,y)
             q.wait(lambda:any(value.startswith('已发音 · world') for value in q.status(aw)),3)
             results.append({'mode':mode,'case':'drag','passed':True})
             if snapshot is not None:
@@ -47,7 +73,7 @@ def main():
                 q.wait(lambda:any(value.startswith("已发音 · don't") for value in q.status(aw)),3)
                 sequence=q.u.GetClipboardSequenceNumber()
                 results.append({'mode':mode,'case':'Ctrl+C','passed':True})
-            print(json.dumps(results[-3:],ensure_ascii=True),flush=True)
+            print(json.dumps(results[mode_results_start:],ensure_ascii=True),flush=True)
     except Exception:
         print('DIAGNOSTIC:',q.status(aw),evaluate('window.getSelection().toString()'),q.text(q.u.GetForegroundWindow()),flush=True)
         raise

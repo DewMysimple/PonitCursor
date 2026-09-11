@@ -83,7 +83,7 @@ if ($Package) {
     $legacyArchive = Join-Path $root 'dist\PointCursor-Windows-x64.zip'
     if (Test-Path -LiteralPath $legacyArchive) { Remove-Item -LiteralPath $legacyArchive -Force }
     $archive = Join-Path $root 'dist\PointCursor.zip'
-    Compress-Archive -LiteralPath $stage -DestinationPath $archive -Force
+    Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $archive -Force
     Write-Output ('Packaged: ' + $archive)
 }
 Write-Output ('Built: ' + (Join-Path $out 'PointCursor.exe'))

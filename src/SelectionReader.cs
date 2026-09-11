@@ -54,6 +54,28 @@ namespace PointCursor
             return word == null ? "ignored|" : "word|" + Convert.ToBase64String(Encoding.UTF8.GetBytes(word));
         }
 
+        private static string EncodeGestureWord(string text, TextPatternRange range, TextPattern pattern, int x, int y)
+        {
+            string context = null;
+            string enclosing = null;
+            try
+            {
+                TextPatternRange line = range.Clone();
+                line.ExpandToEnclosingUnit(TextUnit.Line);
+                context = line.GetText(2049);
+                TextPatternRange wordRange = pattern == null ? range.Clone() : pattern.RangeFromPoint(new System.Windows.Point(x, y));
+                if (wordRange != null)
+                {
+                    wordRange.ExpandToEnclosingUnit(TextUnit.Word);
+                    enclosing = wordRange.GetText(129);
+                }
+            }
+            catch (ArgumentException) { }
+            catch (InvalidOperationException) { }
+            string word = WordRules.ReconcileGesture(text, context, enclosing);
+            return word == null ? "ignored|" : "word|" + Convert.ToBase64String(Encoding.UTF8.GetBytes(word));
+        }
+
         private static bool ReadGestureRange(TextPattern pattern, int startX, int startY, int endX, int endY, out string result)
         {
             result = null;
@@ -79,7 +101,7 @@ namespace PointCursor
                 }
                 string text = range.GetText(129);
                 if (String.IsNullOrWhiteSpace(text)) return false;
-                result = EncodeWord(text);
+                result = EncodeGestureWord(text, range, pattern, (startX + endX) / 2, (startY + endY) / 2);
                 return true;
             }
             catch (ArgumentException) { return false; }
@@ -181,7 +203,7 @@ namespace PointCursor
                                 string text = ranges[0].GetText(129);
                                 if (!String.IsNullOrEmpty(text))
                                 {
-                                    return EncodeWord(text);
+                                    return allowGestureRange ? EncodeGestureWord(text, ranges[0], (TextPattern)pattern, (startX + endX) / 2, (startY + endY) / 2) : EncodeWord(text);
                                 }
                             }
                             string gesture;

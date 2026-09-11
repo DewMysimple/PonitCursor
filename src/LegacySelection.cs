@@ -130,7 +130,7 @@ namespace PointCursor
             }
             return true;
         }
-        private static string ReadDocumentSelection(IAccessible document, uint pid)
+        private static string ReadDocumentSelection(IAccessible document, uint pid, bool allowGestureRange)
         {
             var provider = document as AccessibleServiceProvider;
             if (provider == null) return null;
@@ -161,9 +161,16 @@ namespace PointCursor
                 object item = Marshal.GetObjectForIUnknown(range.Start);
                 var accessible = item as IAccessible;
                 if (!Belongs(accessible, pid) || ProtectedAncestry(accessible, pid)) return "blocked|";
+                var selectedText = (AccessibleText)item;
                 string selected;
-                if (((AccessibleText)item).Text(start, end, out selected) < 0) return "unavailable|";
-                string word = WordRules.Normalize(selected);
+                if (selectedText.Text(start, end, out selected) < 0) return "unavailable|";
+                string context = null, enclosing = null; int boundaryStart, boundaryEnd;
+                if (allowGestureRange)
+                {
+                    if (selectedText.TextAtOffset((start + end) / 2, 4, out boundaryStart, out boundaryEnd, out context) < 0) context = null;
+                    if (selectedText.TextAtOffset((start + end) / 2, 1, out boundaryStart, out boundaryEnd, out enclosing) < 0) enclosing = null;
+                }
+                string word = allowGestureRange ? WordRules.ReconcileGesture(selected, context, enclosing) : WordRules.Normalize(selected);
                 return word == null ? "ignored|" : "word|" + Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(word));
             }
             finally
@@ -185,6 +192,14 @@ namespace PointCursor
             string word = WordRules.Normalize(text);
             return word == null ? "ignored|" : "word|" + Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(word));
         }
+        private static string EncodeGestureWord(AccessibleText text, int start, int end, string selected)
+        {
+            int lineStart, lineEnd, wordStart, wordEnd; string context, enclosing;
+            if (text.TextAtOffset((start + end) / 2, 4, out lineStart, out lineEnd, out context) < 0) context = null;
+            if (text.TextAtOffset((start + end) / 2, 1, out wordStart, out wordEnd, out enclosing) < 0) enclosing = null;
+            string word = WordRules.ReconcileGesture(selected, context, enclosing);
+            return word == null ? "ignored|" : "word|" + Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(word));
+        }
         private static bool ReadGestureRange(AccessibleText text, int startX, int startY, int endX, int endY, out string result)
         {
             result = null;
@@ -203,7 +218,7 @@ namespace PointCursor
                 if (start < 0 || end <= start || (long)end - start > 128 || text.Text(start, end, out selected) < 0) return false;
             }
             if (String.IsNullOrWhiteSpace(selected)) return false;
-            result = EncodeWord(selected);
+            result = EncodeGestureWord(text, start, end, selected);
             return true;
         }
         public static string Read(IntPtr window, int startX, int startY, int endX, int endY, bool allowGestureRange)
@@ -229,7 +244,7 @@ namespace PointCursor
                     if (AccessibleObjectFromWindow(renderer, 0xFFFFFFFC, ref iid, out document) >= 0 && document is IAccessible)
                     {
                         hit = (IAccessible)document; child = 0;
-                        string whole = ReadDocumentSelection(hit, pid);
+                        string whole = ReadDocumentSelection(hit, pid, allowGestureRange);
                         if (whole != null && whole != "unavailable|") return whole;
                     }
                 }
@@ -265,7 +280,10 @@ namespace PointCursor
                                 // An embedded-object marker means the actual selection is in a descendant.
                                 if (selected != null && selected.IndexOf('\uFFFC') < 0)
                                 {
-                                    string word = WordRules.Normalize(selected);
+                                    string context = null, enclosing = null; int lineStart, lineEnd, wordStart, wordEnd;
+                                    if (allowGestureRange && text.TextAtOffset((start + end) / 2, 4, out lineStart, out lineEnd, out context) < 0) context = null;
+                                    if (allowGestureRange && text.TextAtOffset((start + end) / 2, 1, out wordStart, out wordEnd, out enclosing) < 0) enclosing = null;
+                                    string word = allowGestureRange ? WordRules.ReconcileGesture(selected, context, enclosing) : WordRules.Normalize(selected);
                                     if (word != null && !ParentSelectionMatches(hit.accParent as IAccessible, pid, word)) return "ignored|";
                                     return word == null ? "ignored|" : "word|" + Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(word));
                                 }
