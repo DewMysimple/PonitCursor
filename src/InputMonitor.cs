@@ -50,7 +50,7 @@ namespace PointCursor
                 {
                     Native.MouseData value = (Native.MouseData)Marshal.PtrToStructure(data, typeof(Native.MouseData));
                     if (type == 0x201)
-                    { held = true; dragged = false; down = value.Point; Send("reset", down.X, down.Y); }
+                    { held = true; dragged = false; down = value.Point; }
                     else if (type == 0x200)
                     {
                         if (Math.Abs(value.Point.X - down.X) >= SystemInformation.DragSize.Width / 2 || Math.Abs(value.Point.Y - down.Y) >= SystemInformation.DragSize.Height / 2) dragged = true;
@@ -70,7 +70,7 @@ namespace PointCursor
                         lastClick = value.Point; lastClickTime = dragged || twice ? 0 : now; lastClickWindow = window;
                     }
                 }
-                else if (type == 0x204 || type == 0x207 || type == 0x20A) Send("reset", 0, 0);
+                else if (type == 0x204 || type == 0x207 || type == 0x20A) lastClickTime = 0;
             }
             return Native.CallNextHookEx(mouseHook, code, message, data);
         }
@@ -84,11 +84,8 @@ namespace PointCursor
                 if (value.Key == 0x43)
                 {
                     if (isDown && !cDown && Native.GetAsyncKeyState(0x11) < 0 && Native.GetAsyncKeyState(0x12) >= 0 && Native.GetAsyncKeyState(0x10) >= 0) Send("copy", 0, 0);
-                    else if (isDown && !cDown) Send("reset", 0, 0);
                     cDown = isDown;
                 }
-                else if (isDown && value.Key != 0x11 && value.Key != 0xA2 && value.Key != 0xA3 && value.Key != 0x10 && value.Key != 0xA0 && value.Key != 0xA1)
-                    Send("reset", 0, 0);
             }
             return Native.CallNextHookEx(keyHook, code, message, data);
         }

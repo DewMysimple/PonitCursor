@@ -3,9 +3,10 @@ type: knowledge
 status: active
 kind: architecture
 importance: high
-updated: 2026-09-09
+updated: 2026-09-11
 topic: decisions-index
 source_logs:
+  - "[[日志/2026-09-11-提升Zira划词稳定性与响应速度]]"
   - "[[日志/2026-09-09-初始化项目与工程记忆]]"
   - "[[日志/2026-09-09-集成Kokoro离线语音]]"
 supersedes: null
@@ -32,3 +33,4 @@ supersedes: null
 - [[决策/ADR-002-选区读取策略与降级路径|ADR-002 选区读取策略与降级路径]]
 - [[决策/ADR-003-变更提交与远程推送|ADR-003 变更提交与远程推送]]
 - [[决策/ADR-004-内置Kokoro离线语音后端|ADR-004 内置 Kokoro 离线语音后端]]
+- [[决策/ADR-005-完整手势提交与显式重复播报|ADR-005 完整手势提交与显式重复播报]]

@@ -50,6 +50,9 @@ namespace PointCursor
         private long copyTicket, copyTime;
         private bool copying, paused, exiting;
         private string status = "准备好了，选中一个英文单词试试。";
+#if POINTCURSOR_QA
+        private int qaPronunciations;
+#endif
         private readonly uint processId = (uint)Process.GetCurrentProcess().Id;
         public TrayApp(bool quiet)
         {
@@ -63,9 +66,13 @@ namespace PointCursor
             SynchronizationContext.SetSynchronizationContext(new WindowsFormsSynchronizationContext());
             SynchronizationContext ui = SynchronizationContext.Current;
             speech.Failed += delegate(string error) { ui.Post(delegate { if (!exiting) SetStatus(error); }, null); };
-            speech.Started += delegate(long ticket, string word) { ui.Post(delegate { if (!exiting && ticket == speech.Generation) SetStatus("已发音 · " + word); }, null); };
+            speech.Started += delegate(long ticket, string word) { ui.Post(delegate { if (!exiting && ticket == speech.Generation) SetStatus(Pronounced(word)); }, null); };
             input = new InputMonitor(messages.Handle);
-            selectionTimer = new System.Windows.Forms.Timer { Interval = 250 };
+            // A low-level mouse-up hook runs just before the target application handles
+            // that mouse-up. One short UI turn is enough for the selection to settle;
+            // the old 250 ms delay made Zira feel unnecessarily sluggish and left a
+            // large window in which unrelated input could discard a valid gesture.
+            selectionTimer = new System.Windows.Forms.Timer { Interval = 50 };
             selectionTimer.Tick += async delegate { selectionTimer.Stop(); await ReadSelection(); };
             clipboardTimer = new System.Windows.Forms.Timer { Interval = 40 };
             clipboardTimer.Tick += delegate { OnClipboard(); };
@@ -98,17 +105,21 @@ namespace PointCursor
             InputNotice notice;
             while (input.TryTake(out notice))
             {
-                if (notice.Kind == "reset") { Invalidate(true); continue; }
                 if (paused || !Eligible(notice.Window) || Native.GetForegroundWindow() != notice.Window) continue;
                 if (notice.Kind == "selection")
                 {
+                    request.Cancel(); request.Dispose(); request = new CancellationTokenSource();
+                    selection.Invalidate();
+                    copy.Reset(); clipboardTimer.Stop(); copying = false;
                     pendingSelection = notice; selectionTimer.Stop(); selectionTimer.Start();
                 }
                 else if (notice.Kind == "copy" && settings.CopyToSpeak)
                 {
                     selectionTimer.Stop(); pendingSelection = null;
                     request.Cancel(); request.Dispose(); request = new CancellationTokenSource();
-                    copyWindow = notice.Window; copyTicket = selection.Current; copyTime = notice.Time;
+                    // Every explicit Ctrl+C is a new pronunciation request, even when
+                    // the selected word and clipboard contents are unchanged.
+                    copyWindow = notice.Window; copyTicket = selection.Invalidate(); copyTime = notice.Time;
                     copy.Arm(notice.Window, notice.Sequence, notice.Time);
                     clipboardTimer.Start();
                 }
@@ -124,7 +135,10 @@ namespace PointCursor
             try
             {
                 SelectionResult result = await reader.QueryAsync(notice.Window, notice.X, notice.Y, false, token);
-                if (token.IsCancellationRequested || exiting || paused || ticket != selection.Current || Native.GetForegroundWindow() != notice.Window) return;
+                // Once the helper captured a valid word, a later cursor/window change
+                // must not discard it. The helper itself verifies the foreground window
+                // immediately before returning the word.
+                if (token.IsCancellationRequested || exiting || paused || ticket != selection.Current) return;
                 if (result.Word != null) SpeakOnce(result.Word, ticket);
                 else if (result.Status == "unavailable" || result.Status == "timeout") SetStatus(settings.CopyToSpeak ? "此处未能自动取词，选中单词后按 Ctrl+C 可发音。" : "此处未能自动取词，可在设置中开启复制后发音。");
             }
@@ -159,7 +173,9 @@ namespace PointCursor
                 SetStatus("剪贴板正被占用，请再按一次 Ctrl+C。");
             }
             catch (OperationCanceledException) { }
-            finally { if (!token.IsCancellationRequested) copying = false; }
+            // A newer Ctrl+C may cancel this operation while leaving its clipboard timer
+            // armed. Always release the single-reader guard so that timer can consume it.
+            finally { copying = false; }
         }
         private void SpeakOnce(string word, long ticket)
         {
@@ -171,6 +187,14 @@ namespace PointCursor
         { Invalidate(true); if (speech.Speak("hello", settings)) SetStatus(speech.IsKokoroVoice(settings.Voice) ? "正在生成试听 · hello" : "试听 · hello"); else SetStatus(speech.Error ?? "英文语音不可用。"); }
         private void SetStatus(string value)
         { status = value; if (form != null && !form.IsDisposed) form.UpdateStatus(status, paused); }
+        private string Pronounced(string word)
+        {
+#if POINTCURSOR_QA
+            return "已发音 · " + word + " · #" + (++qaPronunciations).ToString(System.Globalization.CultureInfo.InvariantCulture);
+#else
+            return "已发音 · " + word;
+#endif
+        }
         private void SetPaused(bool value)
         {
             paused = value; Invalidate(true);

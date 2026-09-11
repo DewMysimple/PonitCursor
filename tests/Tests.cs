@@ -41,8 +41,9 @@ namespace PointCursor
             long old = gate.Current; long current = gate.Invalidate();
             Check(!gate.TryAccept(old), "reject stale selection");
             Check(gate.TryAccept(current), "accept current selection");
-            Check(!gate.TryAccept(current), "suppress auto/copy duplicate");
+            Check(!gate.TryAccept(current), "suppress duplicate result from one request");
             Check(gate.TryAccept(gate.Invalidate()), "same word may replay on new gesture");
+            Check(gate.TryAccept(gate.Invalidate()), "same word may replay on every explicit copy");
             var copy = new CopyGate(); IntPtr a = new IntPtr(1), b = new IntPtr(2);
             Check(!copy.TryConsume(a, 2, 0), "ignore unsolicited clipboard change");
             copy.Arm(a, 4, 100);
@@ -135,7 +136,7 @@ namespace PointCursor
             using (var service = new SpeechService())
             using (var started = new ManualResetEvent(false))
             {
-                string voice = service.Voices.First(v => !service.IsKokoroVoice(v)), failure = null, spoken = null;
+                string voice = service.Voices.First(v => v.IndexOf("Microsoft Zira Desktop", StringComparison.OrdinalIgnoreCase) >= 0), failure = null, spoken = null;
                 var settings = new AppSettings { Voice = voice, Volume = 85 };
                 service.Failed += delegate(string error) { failure = error; started.Set(); };
                 service.Started += delegate(long id, string word) { spoken = word; started.Set(); };
@@ -143,6 +144,9 @@ namespace PointCursor
                 var clock = Stopwatch.StartNew(); service.Speak("English", settings);
                 Check(started.WaitOne(5000) && failure == null && spoken == "English", "SAPI renders through shared output");
                 Console.WriteLine("SAPI warm English ms: " + clock.ElapsedMilliseconds);
+                started.Reset(); spoken = null;
+                service.Speak("English", settings);
+                Check(started.WaitOne(5000) && failure == null && spoken == "English", "Zira repeats the same word on a new request");
                 service.Suspend(); started.Reset(); spoken = null; Thread.Sleep(150);
                 Check(!started.WaitOne(100), "pause cancels playback");
                 service.Prepare(settings); service.Speak("apple", settings);

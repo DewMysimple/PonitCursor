@@ -3,7 +3,7 @@ type: moc
 status: active
 kind: process
 importance: high
-updated: 2026-09-10
+updated: 2026-09-11
 topic: work-log-index
 source_logs: []
 supersedes: null
@@ -15,6 +15,7 @@ supersedes: null
 
 | 时间 | 类型 | 目标 | 状态 | 主题 | 日志 |
 | --- | --- | --- | --- | --- | --- |
+| 2026-09-11 | bug | 只以 Microsoft Zira Desktop 作为本轮验收语音，提高划词成功率，防止普通光标／窗口／输入变化撤销请求或截断读音，允许同一单词重复 Ctrl+C 发音，并降低鼠标松开到开始取词的等待。 | archived | improve-zira-selection-reliability-and-latency | [[日志/2026-09-11-提升Zira划词稳定性与响应速度.md|2026-09-11｜提升 Zira 划词稳定性与响应速度]] |
 | 2026-09-10 | maintenance | 补全仓库根目录的 `buildStart.cmd`，一键生成 `dist` 下的可运行目录和 Windows x64 ZIP。 | archived | add-one-click-build-command | [[日志/2026-09-10-新增一键构建脚本.md|2026-09-10｜新增一键构建脚本]] |
 | 2026-09-09 | feature | 把用户提供的本地 NVIDIA Kokoro 声线加入 PointCursor，形成可离线发布和选择的 Kokoro 语音后端。 | archived | integrate-kokoro-offline-voices | [[日志/2026-09-09-集成Kokoro离线语音.md|2026-09-09｜集成 Kokoro 离线语音]] |
 | 2026-09-09 | test | 在本地构建 PointCursor，并验证自动检查和便携发布包生成。 | archived | local-build-verification | [[日志/2026-09-09-本地构建验证.md|2026-09-09｜本地构建验证]] |

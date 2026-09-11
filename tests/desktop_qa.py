@@ -92,6 +92,11 @@ def rect(hwnd):
 def status(hwnd):
     return [text(child) for child in windows(hwnd) if text(child).startswith(("已发音", "此处未能", "已暂停", "准备好了", "无法确认"))]
 
+def pronunciation_count(hwnd, word):
+    prefix = "已发音 · " + word + " · #"
+    values = [int(value[len(prefix):]) for value in status(hwnd) if value.startswith(prefix)]
+    return max(values, default=0)
+
 def clipboard_snapshot():
     if not u.OpenClipboard(None): return None
     try:
@@ -137,16 +142,20 @@ def main():
         x,y=position(0);x+=10
         before_clipboard = u.GetClipboardSequenceNumber()
         clock = time.monotonic(); click(x, y, True)
-        wait(lambda: "已发音 · hello" in status(aw), 4)
-        check("RichTextBox double-click reads hello", True)
+        # A key/caret-state change immediately after mouse-up used to revoke the
+        # already completed selection gesture before its 250 ms timer fired.
+        key(0x1B); key(0x1B, True)
+        wait(lambda: pronunciation_count(aw, "hello") > 0, 4)
+        check("input after mouse-up does not revoke hello", True)
         checks.append("First pronunciation status in %.0f ms" % ((time.monotonic() - clock) * 1000))
         check("automatic selection leaves clipboard unchanged", u.GetClipboardSequenceNumber() == before_clipboard)
         # Start just inside the next word; the exact boundary belongs to the previous
         # highlighted trailing space and would initiate RichEdit drag-and-drop instead.
         foreground(fw); time.sleep(.15); start_pos=position(6); end_pos=position(11); drag(start_pos[0]+3,start_pos[1],end_pos[0]+3,end_pos[1])
-        wait(lambda: "已发音 · world" in status(aw), 4)
+        wait(lambda: pronunciation_count(aw, "world") > 0, 4)
         check("RichTextBox drag reads world", True)
-        foreground(fw); click(x, y, True); wait(lambda: "已发音 · hello" in status(aw))
+        hello_count = pronunciation_count(aw, "hello")
+        foreground(fw); click(x, y, True); wait(lambda: pronunciation_count(aw, "hello") > hello_count)
         check("reselecting previous word reads again", True)
         pause = next(h for h in windows(aw) if text(h) == "暂停")
         u.SendMessageW(pause, 0xF5, 0, 0)
@@ -159,11 +168,19 @@ def main():
             foreground(fw); click(x, y); key(0x1B); key(0x1B, True)
             u.SendMessageW(rich, 0xB1, 6, 11)
             key(0x11); key(0x43); key(0x43, True); key(0x11, True)
-            wait(lambda: "已发音 · world" in status(aw))
+            wait(lambda: pronunciation_count(aw, "world") > 0)
             copy_sequence = u.GetClipboardSequenceNumber()
             check("explicit Ctrl+C fallback reads selected word", True)
             time.sleep(.2)
             check("fallback does not rewrite clipboard", u.GetClipboardSequenceNumber() == copy_sequence)
+            # Repeating Ctrl+C for the same unchanged selection must create a new
+            # clipboard sequence and a new pronunciation request.
+            first_copy_count = pronunciation_count(aw, "world")
+            key(0x11); key(0x43); key(0x43, True); key(0x11, True)
+            wait(lambda: u.GetClipboardSequenceNumber() != copy_sequence)
+            copy_sequence = u.GetClipboardSequenceNumber()
+            wait(lambda: pronunciation_count(aw, "world") > first_copy_count)
+            check("repeated Ctrl+C for the same word is accepted", True)
         else: checks.append("SKIP clipboard interaction: cannot losslessly snapshot current formats")
         password = next(h for h in windows(fw) if "EDIT" in cls(h).upper() and h != rich)
         area2 = rect(password); baseline = status(aw)

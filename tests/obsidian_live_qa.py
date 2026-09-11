@@ -34,17 +34,17 @@ def main():
                 pt=W.POINT(0,0);q.u.ClientToScreen.argtypes=[W.HWND,C.POINTER(W.POINT)];q.u.ClientToScreen(hwnd,C.byref(pt))
                 return pt.x+r['x']*r['scale'],pt.y+(r['y']+r['height']/2)*r['scale']
             r=select(2,0,5);x,y=coordinates(r);clock=time.monotonic();q.click(x+8,y,True)
-            q.wait(lambda:'已发音 · hello' in q.status(aw),3)
+            q.wait(lambda:any(value.startswith('已发音 · hello') for value in q.status(aw)),3)
             results.append({'mode':mode,'case':'double-click','passed':True,'ms':round((time.monotonic()-clock)*1000)})
             r=select(2,6,11);x,y=coordinates(r)
             # Clear the script-created selection before exercising native mouse dragging.
             q.click(x+2,y);time.sleep(.1);q.drag(x+1,y,x+r['width']-1,y)
-            q.wait(lambda:'已发音 · world' in q.status(aw),3)
+            q.wait(lambda:any(value.startswith('已发音 · world') for value in q.status(aw)),3)
             results.append({'mode':mode,'case':'drag','passed':True})
             if snapshot is not None:
                 q.key(0x1B);q.key(0x1B,True);select(4,11,16)
                 q.key(0x11);q.key(0x43);q.key(0x43,True);q.key(0x11,True)
-                q.wait(lambda:"已发音 · don't" in q.status(aw),3)
+                q.wait(lambda:any(value.startswith("已发音 · don't") for value in q.status(aw)),3)
                 sequence=q.u.GetClipboardSequenceNumber()
                 results.append({'mode':mode,'case':'Ctrl+C','passed':True})
             print(json.dumps(results[-3:],ensure_ascii=True),flush=True)

@@ -1,6 +1,6 @@
 # 验证方法
 
-先运行 `powershell -NoProfile -ExecutionPolicy Bypass -File .\build.ps1 -Test`。87 项自动检查涵盖词规则、设置、两种语音、PCM 词头保留、预加载、快速换词、卡死恢复与退出清理；会播放几个固定的测试单词。测试版托盘程序单独编译为 `POINTCURSOR_QA`，设置仅保存到 `build/tests/qa/settings.xml`，不会覆盖使用者设置。运行桌面测试前应退出正在使用的 PointCursor，以免单实例互斥。
+先运行 `powershell -NoProfile -ExecutionPolicy Bypass -File .\build.ps1 -Test`。89 项自动检查涵盖词规则、设置、两种语音、Zira 同词重复请求、PCM 词头保留、预加载、快速换词、卡死恢复与退出清理；会播放几个固定的测试单词。测试版托盘程序单独编译为 `POINTCURSOR_QA`，设置仅保存到 `build/tests/qa/settings.xml`，不会覆盖使用者设置。运行桌面测试前应退出正在使用的 PointCursor，以免单实例互斥。
 
 以下集成测试会临时展示测试窗口、移动鼠标并播放英文。运行时保持桌面空闲，避免同时操作鼠标键盘。仅操作合成测试内容。脚本退出时恢复原来的前台窗口和光标位置；复制测试仅在可完整快照剪贴板时执行，结束时在剪贴板未被外部改变的情况下恢复其内容。
 
@@ -9,7 +9,7 @@ python .\tests\desktop_qa.py
 python .\tests\browser_qa.py
 ```
 
-桌面脚本使用独立 RichTextBox / 密码框测试窗口。浏览器脚本需要 Chrome（默认常见安装路径）和 Node.js 22+，只打开项目中的本地 HTML，并使用独立浏览器配置。它不操作日常使用的浏览器窗口。
+桌面脚本使用独立 RichTextBox / 密码框测试窗口，并验证划词完成后的普通输入不会撤销请求。Ctrl+C 测试只在当前剪贴板全部格式都可无损快照时执行，否则明确跳过。浏览器脚本需要 Chrome（默认常见安装路径）和 Node.js 22+，只打开项目中的本地 HTML，并使用独立浏览器配置。它不操作日常使用的浏览器窗口。
 
 Obsidian 测试需要 Python、Node.js 22+ 和本机 Obsidian，先启动独立测试库：
 
