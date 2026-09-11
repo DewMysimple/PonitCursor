@@ -23,6 +23,8 @@ namespace PointCursor
         private readonly string arguments;
         public SelectionClient(string path, string arguments = "") { executable = path; this.arguments = arguments; }
         public async Task<SelectionResult> QueryAsync(IntPtr window, int x, int y, bool guardOnly, CancellationToken cancel)
+        { return await QueryAsync(window, x, y, x, y, guardOnly, cancel); }
+        public async Task<SelectionResult> QueryAsync(IntPtr window, int startX, int startY, int endX, int endY, bool guardOnly, CancellationToken cancel)
         {
             await mutex.WaitAsync(cancel);
             try
@@ -38,7 +40,7 @@ namespace PointCursor
                     });
                 }
                 string id = (++serial).ToString(System.Globalization.CultureInfo.InvariantCulture);
-                worker.StandardInput.WriteLine(id + "|" + window.ToInt64() + "|" + x + "|" + y + "|" + (guardOnly ? "guard" : "selection"));
+                worker.StandardInput.WriteLine(id + "|" + window.ToInt64() + "|" + startX + "|" + startY + "|" + endX + "|" + endY + "|" + (guardOnly ? "guard" : "gesture"));
                 worker.StandardInput.Flush();
                 Task<string> read = worker.StandardOutput.ReadLineAsync();
                 Task limit = Task.Delay(900, cancel);

@@ -80,7 +80,9 @@ if ($Package) {
     $kokoroStage = Join-Path $stage 'Kokoro'
     New-Item -ItemType Directory -Force -Path $kokoroStage | Out-Null
     SyncRuntime $kokoroOut $kokoroStage
-    $archive = Join-Path $root 'dist\PointCursor-Windows-x64.zip'
+    $legacyArchive = Join-Path $root 'dist\PointCursor-Windows-x64.zip'
+    if (Test-Path -LiteralPath $legacyArchive) { Remove-Item -LiteralPath $legacyArchive -Force }
+    $archive = Join-Path $root 'dist\PointCursor.zip'
     Compress-Archive -LiteralPath $stage -DestinationPath $archive -Force
     Write-Output ('Packaged: ' + $archive)
 }

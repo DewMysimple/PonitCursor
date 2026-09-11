@@ -19,14 +19,17 @@ namespace PointCursor
                 try
                 {
                     string[] parts = line.Split('|');
-                    if (parts.Length != 5) { Console.WriteLine("error|"); continue; }
+                    if (parts.Length != 5 && parts.Length != 7) { Console.WriteLine("error|"); continue; }
                     var window = new IntPtr(Int64.Parse(parts[1], System.Globalization.CultureInfo.InvariantCulture));
-                    int x = Int32.Parse(parts[2]), y = Int32.Parse(parts[3]);
-                    string result = Read(window, x, y, parts[4] == "guard");
+                    int startX = Int32.Parse(parts[2]), startY = Int32.Parse(parts[3]);
+                    int endX = parts.Length == 7 ? Int32.Parse(parts[4]) : startX;
+                    int endY = parts.Length == 7 ? Int32.Parse(parts[5]) : startY;
+                    string mode = parts[parts.Length - 1];
+                    string result = Read(window, startX, startY, endX, endY, mode == "guard", mode == "gesture");
                     // Chromium may initialize its accessibility tree asynchronously on
                     // the first query. One bounded retry also refreshes stale hit testing.
-                    if (result == "unavailable|" && parts[4] != "guard" && Native.GetForegroundWindow() == window)
-                    { System.Threading.Thread.Sleep(60); result = Read(window, x, y, false); }
+                    if (result == "unavailable|" && mode != "guard")
+                    { System.Threading.Thread.Sleep(40); result = Read(window, startX, startY, endX, endY, false, mode == "gesture"); }
                     Console.WriteLine(parts[0] + "|" + result);
                 }
                 catch (Exception) { Console.WriteLine("error|"); }
@@ -45,16 +48,115 @@ namespace PointCursor
             return false;
         }
 
-        private static string Read(IntPtr window, int x, int y, bool guardOnly)
+        private static string EncodeWord(string text)
         {
-            if (window == IntPtr.Zero || Native.GetForegroundWindow() != window) return "stale|";
+            string word = WordRules.Normalize(text);
+            return word == null ? "ignored|" : "word|" + Convert.ToBase64String(Encoding.UTF8.GetBytes(word));
+        }
+
+        private static bool ReadGestureRange(TextPattern pattern, int startX, int startY, int endX, int endY, out string result)
+        {
+            result = null;
+            try
+            {
+                TextPatternRange first = pattern.RangeFromPoint(new System.Windows.Point(startX, startY));
+                if (first == null) return false;
+                TextPatternRange range;
+                if (Math.Abs(startX - endX) <= 1 && Math.Abs(startY - endY) <= 1)
+                {
+                    range = first.Clone();
+                    range.ExpandToEnclosingUnit(TextUnit.Word);
+                }
+                else
+                {
+                    TextPatternRange last = pattern.RangeFromPoint(new System.Windows.Point(endX, endY));
+                    if (last == null) return false;
+                    int order = first.CompareEndpoints(TextPatternRangeEndpoint.Start, last, TextPatternRangeEndpoint.Start);
+                    if (order == 0) return false;
+                    range = (order < 0 ? first : last).Clone();
+                    TextPatternRange upper = order < 0 ? last : first;
+                    range.MoveEndpointByRange(TextPatternRangeEndpoint.End, upper, TextPatternRangeEndpoint.Start);
+                }
+                string text = range.GetText(129);
+                if (String.IsNullOrWhiteSpace(text)) return false;
+                result = EncodeWord(text);
+                return true;
+            }
+            catch (ArgumentException) { return false; }
+            catch (InvalidOperationException) { return false; }
+            catch (ElementNotAvailableException) { return false; }
+        }
+
+        private static AutomationElement DescendAtPoint(AutomationElement root, uint pid, int x, int y)
+        {
+            if (!Belongs(root, pid)) return null;
+            AutomationElement current = root;
+            var clock = Stopwatch.StartNew();
+            int scanned = 0;
+            for (int depth = 0; depth < 16 && clock.ElapsedMilliseconds < 300 && scanned < 160; depth++)
+            {
+                AutomationElement best = null;
+                double bestArea = Double.MaxValue;
+                AutomationElement child = TreeWalker.ControlViewWalker.GetFirstChild(current);
+                while (child != null && scanned++ < 160 && clock.ElapsedMilliseconds < 300)
+                {
+                    try
+                    {
+                        if (Belongs(child, pid))
+                        {
+                            System.Windows.Rect bounds = child.Current.BoundingRectangle;
+                            if (!bounds.IsEmpty && bounds.Contains(new System.Windows.Point(x, y)))
+                            {
+                                double area = bounds.Width * bounds.Height;
+                                if (area < bestArea) { best = child; bestArea = area; }
+                            }
+                        }
+                        child = TreeWalker.ControlViewWalker.GetNextSibling(child);
+                    }
+                    catch (ElementNotAvailableException) { break; }
+                }
+                if (best == null) break;
+                current = best;
+            }
+            return current;
+        }
+
+        private static AutomationElement ElementAtGesture(IntPtr window, uint pid, int x, int y)
+        {
+            try
+            {
+                AutomationElement hit = AutomationElement.FromPoint(new System.Windows.Point(x, y));
+                if (Belongs(hit, pid)) return hit;
+            }
+            catch (ElementNotAvailableException) { }
+            catch (ArgumentException) { }
+            try
+            {
+                IntPtr child = Native.DescendantWindowAtPoint(window, x, y);
+                if (child == IntPtr.Zero || Native.ProcessOf(child) != pid) child = window;
+                return DescendAtPoint(AutomationElement.FromHandle(child), pid, x, y);
+            }
+            catch (ElementNotAvailableException) { return null; }
+            catch (ArgumentException) { return null; }
+            catch (InvalidOperationException) { return null; }
+        }
+
+        private static string Read(IntPtr window, int startX, int startY, int endX, int endY, bool guardOnly, bool allowGestureRange)
+        {
+            if (window == IntPtr.Zero) return "stale|";
+            bool isForeground = Native.GetForegroundWindow() == window;
+            if (guardOnly && !isForeground) return "stale|";
             uint pid = Native.ProcessOf(window);
-            AutomationElement focused = AutomationElement.FocusedElement;
+            if (pid == 0) return "stale|";
+            AutomationElement focused = isForeground ? AutomationElement.FocusedElement : null;
             if (!Belongs(focused, pid)) focused = null;
             if (focused != null && IsPassword(focused, pid)) return "blocked|";
-            if (LegacySelection.ProtectedFocus(window)) return "blocked|";
+            // Foreground clipboard guards inspect the focused Chromium node. A
+            // completed background gesture is instead protected by its anchored hit
+            // element/range; querying a background document's stale focus can fail.
+            if (isForeground && LegacySelection.ProtectedFocus(window)) return "blocked|";
             if (guardOnly) return focused == null ? "unavailable|" : "safe|";
-            AutomationElement hit = AutomationElement.FromPoint(new System.Windows.Point(x, y));
+            AutomationElement hit = ElementAtGesture(window, pid, endX, endY);
             if (!Belongs(hit, pid)) return "unavailable|";
             if (IsPassword(hit, pid)) return "blocked|";
             var visited = new HashSet<string>();
@@ -79,17 +181,17 @@ namespace PointCursor
                                 string text = ranges[0].GetText(129);
                                 if (!String.IsNullOrEmpty(text))
                                 {
-                                    string word = WordRules.Normalize(text);
-                                    if (Native.GetForegroundWindow() != window) return "stale|";
-                                    return word == null ? "ignored|" : "word|" + Convert.ToBase64String(Encoding.UTF8.GetBytes(word));
+                                    return EncodeWord(text);
                                 }
                             }
+                            string gesture;
+                            if (allowGestureRange && ReadGestureRange((TextPattern)pattern, startX, startY, endX, endY, out gesture)) return gesture;
                         }
                     }
                     current = TreeWalker.ControlViewWalker.GetParent(current);
                 }
             }
-            return LegacySelection.Read(window, x, y);
+            return LegacySelection.Read(window, startX, startY, endX, endY, allowGestureRange);
         }
     }
 }

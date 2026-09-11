@@ -68,11 +68,10 @@ namespace PointCursor
             speech.Failed += delegate(string error) { ui.Post(delegate { if (!exiting) SetStatus(error); }, null); };
             speech.Started += delegate(long ticket, string word) { ui.Post(delegate { if (!exiting && ticket == speech.Generation) SetStatus(Pronounced(word)); }, null); };
             input = new InputMonitor(messages.Handle);
-            // A low-level mouse-up hook runs just before the target application handles
-            // that mouse-up. One short UI turn is enough for the selection to settle;
-            // the old 250 ms delay made Zira feel unnecessarily sluggish and left a
-            // large window in which unrelated input could discard a valid gesture.
-            selectionTimer = new System.Windows.Forms.Timer { Interval = 50 };
+            // Start almost immediately. The reader can reconstruct the gesture range
+            // from both mouse endpoints, so a later focus/caret change is no longer
+            // allowed to erase an already completed selection intent.
+            selectionTimer = new System.Windows.Forms.Timer { Interval = 10 };
             selectionTimer.Tick += async delegate { selectionTimer.Stop(); await ReadSelection(); };
             clipboardTimer = new System.Windows.Forms.Timer { Interval = 40 };
             clipboardTimer.Tick += delegate { OnClipboard(); };
@@ -105,7 +104,7 @@ namespace PointCursor
             InputNotice notice;
             while (input.TryTake(out notice))
             {
-                if (paused || !Eligible(notice.Window) || Native.GetForegroundWindow() != notice.Window) continue;
+                if (paused || !Eligible(notice.Window)) continue;
                 if (notice.Kind == "selection")
                 {
                     request.Cancel(); request.Dispose(); request = new CancellationTokenSource();
@@ -113,7 +112,7 @@ namespace PointCursor
                     copy.Reset(); clipboardTimer.Stop(); copying = false;
                     pendingSelection = notice; selectionTimer.Stop(); selectionTimer.Start();
                 }
-                else if (notice.Kind == "copy" && settings.CopyToSpeak)
+                else if (notice.Kind == "copy" && settings.CopyToSpeak && Native.GetForegroundWindow() == notice.Window)
                 {
                     selectionTimer.Stop(); pendingSelection = null;
                     request.Cancel(); request.Dispose(); request = new CancellationTokenSource();
@@ -129,15 +128,14 @@ namespace PointCursor
         {
             InputNotice notice = pendingSelection;
             pendingSelection = null;
-            if (notice == null || paused || Native.GetForegroundWindow() != notice.Window) return;
+            if (notice == null || paused) return;
             long ticket = selection.Current;
             CancellationToken token = request.Token;
             try
             {
-                SelectionResult result = await reader.QueryAsync(notice.Window, notice.X, notice.Y, false, token);
-                // Once the helper captured a valid word, a later cursor/window change
-                // must not discard it. The helper itself verifies the foreground window
-                // immediately before returning the word.
+                SelectionResult result = await reader.QueryAsync(notice.Window, notice.StartX, notice.StartY, notice.X, notice.Y, false, token);
+                // The completed gesture owns this request. Later focus, caret and
+                // foreground changes neither revoke its result nor stop its playback.
                 if (token.IsCancellationRequested || exiting || paused || ticket != selection.Current) return;
                 if (result.Word != null) SpeakOnce(result.Word, ticket);
                 else if (result.Status == "unavailable" || result.Status == "timeout") SetStatus(settings.CopyToSpeak ? "此处未能自动取词，选中单词后按 Ctrl+C 可发音。" : "此处未能自动取词，可在设置中开启复制后发音。");
@@ -233,7 +231,12 @@ namespace PointCursor
         {
             Application.EnableVisualStyles(); Application.SetCompatibleTextRenderingDefault(false);
             bool owned;
-            using (var instance = new Mutex(true, "Local\\PointCursor-" + System.Security.Principal.WindowsIdentity.GetCurrent().User.Value, out owned))
+#if POINTCURSOR_QA
+            string instanceName = "Local\\PointCursor-QA-" + System.Security.Principal.WindowsIdentity.GetCurrent().User.Value;
+#else
+            string instanceName = "Local\\PointCursor-" + System.Security.Principal.WindowsIdentity.GetCurrent().User.Value;
+#endif
+            using (var instance = new Mutex(true, instanceName, out owned))
             {
                 if (!owned) { MessageBox.Show("PointCursor 已在运行。请在任务栏右下角（含隐藏图标）双击它的图标打开设置。", "PointCursor", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
                 try { Application.Run(new TrayApp(Array.IndexOf(args, "--quiet") >= 0)); }

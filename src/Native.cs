@@ -18,6 +18,8 @@ namespace PointCursor
         [DllImport("user32.dll")] public static extern short GetAsyncKeyState(int key);
         [DllImport("user32.dll")] public static extern uint GetDoubleClickTime();
         [DllImport("user32.dll")] public static extern bool GetCursorPos(out Point point);
+        [DllImport("user32.dll")] public static extern bool ScreenToClient(IntPtr window, ref Point point);
+        [DllImport("user32.dll")] public static extern IntPtr ChildWindowFromPointEx(IntPtr parent, Point point, uint flags);
         [DllImport("user32.dll")] public static extern uint GetClipboardSequenceNumber();
         [DllImport("user32.dll", SetLastError = true)] public static extern bool AddClipboardFormatListener(IntPtr window);
         [DllImport("user32.dll")] public static extern bool RemoveClipboardFormatListener(IntPtr window);
@@ -34,6 +36,19 @@ namespace PointCursor
         [DllImport("user32.dll")] public static extern IntPtr GetClipboardOwner();
         public static long Now { get { return (long)GetTickCount64(); } }
         public static uint ProcessOf(IntPtr window) { uint pid; GetWindowThreadProcessId(window, out pid); return pid; }
+        public static IntPtr DescendantWindowAtPoint(IntPtr root, int x, int y)
+        {
+            IntPtr current = root;
+            for (int depth = 0; depth < 16 && current != IntPtr.Zero; depth++)
+            {
+                Point point = new Point { X = x, Y = y };
+                if (!ScreenToClient(current, ref point)) break;
+                IntPtr child = ChildWindowFromPointEx(current, point, 0x0001 | 0x0002 | 0x0004);
+                if (child == IntPtr.Zero || child == current) break;
+                current = child;
+            }
+            return current;
+        }
 
         public static string ReadShortClipboard(IntPtr owner, out bool busy)
         {

@@ -4,7 +4,7 @@
 
 ## 开始使用
 
-1. 解压 `PointCursor-Windows-x64.zip`，保留整个 `PointCursor` 文件夹。
+1. 解压 `PointCursor.zip`；压缩包内已经是完整的 `PointCursor` 软件目录，请保留整个文件夹。
 2. 双击 `PointCursor.exe`。默认启用划词发音；可使用 Microsoft Zira 等 Windows 系统语音，也可在设置中选择内置 Kokoro 神经语音。
 3. 回到 Obsidian，**双击或拖选** `hello`、`English` 等英文单词，松开鼠标即可听到读音。
 4. 未能自动取词时，保持选中，按 **Ctrl+C**。关闭设置窗口后，程序继续在系统托盘运行；托盘图标可能在任务栏右侧的隐藏图标区域。
@@ -47,7 +47,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\diagnose.ps1
 
 不保存选中文字、阅读历史或按键记录，不访问笔记文件，不联网。设置窗口暂时显示最近一次发音的单词，退出后清除。密码控件会被跳过。
 
-取词辅助进程与主程序隔离。鼠标松开后先留约 50 毫秒让目标软件完成选区更新，随后立即读取；第三方软件取词卡住时，约 900 毫秒后终止该次读取，后续请求会重新启动辅助进程，不阻塞鼠标或设置窗口。
+取词辅助进程与主程序隔离。鼠标松开后约 10 毫秒即开始读取，同时记录划词起止位置；即使随后切换窗口或点击别处清空选区，仍会从原窗口和原手势范围完成这次取词。第三方软件取词卡住时，约 900 毫秒后终止该次读取，后续请求会重新启动辅助进程，不阻塞鼠标或设置窗口。
 
 ## 从源码构建
 
@@ -62,7 +62,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\build.ps1 -Test -Package
 使用 Windows 自带的 .NET Framework C# 编译器和系统程序集，不下载 NuGet 或 npm 包。Kokoro 运行时位于 `third_party\kokoro-runtime`，模型、声线、Node.js 和原生 ONNX Runtime 由 Git LFS 管理，JavaScript 编译产物也随仓库提交；因此首次克隆源码前需安装 Git LFS 并执行 `git lfs pull`，再确保整个运行时目录完整。构建会对照 `assets.tsv` 检查全部文件；运行时文本固定 LF 换行，避免换机检出后的哈希变化。维护者有意更新运行时后，运行 `python tools/runtime_manifest.py` 刷新清单并一同提交。
 
 - 可运行目录：`dist\PointCursor`
-- 便携压缩包：`dist\PointCursor-Windows-x64.zip`
+- 便携压缩包：`dist\PointCursor.zip`（解压后得到 `PointCursor` 软件目录）
 - 自动测试与桌面测试程序：`build\tests`
 - 测试截图和验证结果：`build\qa`
 

@@ -78,6 +78,14 @@ def click(x, y, twice=False):
     for _ in range(2 if twice else 1):
         u.mouse_event(2, 0, 0, 0, 0); time.sleep(.04); u.mouse_event(4, 0, 0, 0, 0); time.sleep(.06)
 
+def click_now(x, y, twice=False):
+    """Release the final click without a trailing test-side delay."""
+    u.SetCursorPos(int(x), int(y))
+    count = 2 if twice else 1
+    for index in range(count):
+        u.mouse_event(2, 0, 0, 0, 0); time.sleep(.04); u.mouse_event(4, 0, 0, 0, 0)
+        if index + 1 < count: time.sleep(.06)
+
 def drag(x1, y1, x2, y2):
     u.SetCursorPos(int(x1), int(y1)); u.mouse_event(2, 0, 0, 0, 0)
     for step in range(1, 7):
@@ -149,6 +157,21 @@ def main():
         check("input after mouse-up does not revoke hello", True)
         checks.append("First pronunciation status in %.0f ms" % ((time.monotonic() - clock) * 1000))
         check("automatic selection leaves clipboard unchanged", u.GetClipboardSequenceNumber() == before_clipboard)
+        # Switching away at the exact drag-release boundary must not turn the
+        # completed source-window gesture into a stale request.
+        hello_count = pronunciation_count(aw, "hello")
+        hello_start,hello_end=position(0),position(5)
+        foreground(fw); time.sleep(.12); drag(hello_start[0]+3,hello_start[1],hello_end[0]+3,hello_end[1])
+        u.SetForegroundWindow(aw); wait(lambda: u.GetForegroundWindow() == aw)
+        wait(lambda: pronunciation_count(aw, "hello") > hello_count, 4)
+        check("window switch after drag preserves hello", True)
+        # A following caret click can clear the live RichEdit selection before the
+        # helper runs. The original gesture endpoints must still reconstruct hello.
+        hello_count = pronunciation_count(aw, "hello")
+        foreground(fw); time.sleep(.12); drag(hello_start[0]+3,hello_start[1],hello_end[0]+3,hello_end[1])
+        other_x,other_y=position(6); click_now(other_x+10, other_y)
+        wait(lambda: pronunciation_count(aw, "hello") > hello_count, 4)
+        check("caret click after drag preserves hello", True)
         # Start just inside the next word; the exact boundary belongs to the previous
         # highlighted trailing space and would initiate RichEdit drag-and-drop instead.
         foreground(fw); time.sleep(.15); start_pos=position(6); end_pos=position(11); drag(start_pos[0]+3,start_pos[1],end_pos[0]+3,end_pos[1])

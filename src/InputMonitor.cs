@@ -10,7 +10,7 @@ namespace PointCursor
     {
         public string Kind;
         public IntPtr Window;
-        public int X, Y;
+        public int StartX, StartY, X, Y;
         public uint Sequence;
         public long Time;
     }
@@ -35,9 +35,9 @@ namespace PointCursor
             keyHook = Native.SetWindowsHookEx(13, keyCallback, module, 0);
             if (mouseHook == IntPtr.Zero || keyHook == IntPtr.Zero) { int error = Marshal.GetLastWin32Error(); Dispose(); throw new Win32Exception(error); }
         }
-        private void Send(string kind, int x, int y)
+        private void Send(string kind, int startX, int startY, int x, int y)
         {
-            pending.Enqueue(new InputNotice { Kind = kind, X = x, Y = y, Window = Native.GetForegroundWindow(), Sequence = Native.GetClipboardSequenceNumber(), Time = Native.Now });
+            pending.Enqueue(new InputNotice { Kind = kind, StartX = startX, StartY = startY, X = x, Y = y, Window = Native.GetForegroundWindow(), Sequence = Native.GetClipboardSequenceNumber(), Time = Native.Now });
             Native.PostMessage(receiver, NoticeMessage, IntPtr.Zero, IntPtr.Zero);
         }
         public bool TryTake(out InputNotice notice) { return pending.TryDequeue(out notice); }
@@ -66,7 +66,7 @@ namespace PointCursor
                         bool twice = !dragged && lastClickWindow == window && now - lastClickTime <= Native.GetDoubleClickTime()
                             && Math.Abs(value.Point.X - lastClick.X) <= SystemInformation.DoubleClickSize.Width / 2
                             && Math.Abs(value.Point.Y - lastClick.Y) <= SystemInformation.DoubleClickSize.Height / 2;
-                        if (dragged || twice) Send("selection", value.Point.X, value.Point.Y);
+                        if (dragged || twice) Send("selection", down.X, down.Y, value.Point.X, value.Point.Y);
                         lastClick = value.Point; lastClickTime = dragged || twice ? 0 : now; lastClickWindow = window;
                     }
                 }
@@ -83,7 +83,7 @@ namespace PointCursor
                 bool isDown = type == 0x100 || type == 0x104;
                 if (value.Key == 0x43)
                 {
-                    if (isDown && !cDown && Native.GetAsyncKeyState(0x11) < 0 && Native.GetAsyncKeyState(0x12) >= 0 && Native.GetAsyncKeyState(0x10) >= 0) Send("copy", 0, 0);
+                    if (isDown && !cDown && Native.GetAsyncKeyState(0x11) < 0 && Native.GetAsyncKeyState(0x12) >= 0 && Native.GetAsyncKeyState(0x10) >= 0) Send("copy", 0, 0, 0, 0);
                     cDown = isDown;
                 }
             }
