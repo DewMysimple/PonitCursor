@@ -25,14 +25,14 @@ namespace PointCursor
                     int endX = parts.Length == 7 ? Int32.Parse(parts[4]) : startX;
                     int endY = parts.Length == 7 ? Int32.Parse(parts[5]) : startY;
                     string mode = parts[parts.Length - 1];
-                    string result = Read(window, startX, startY, endX, endY, mode == "guard", mode == "gesture");
+                    string result = Read(window, startX, startY, endX, endY, mode == "guard", mode == "gesture" || mode == "double", mode == "double");
                     // Chromium may initialize its accessibility tree asynchronously on
-                    // the first query. One bounded retry also refreshes stale hit testing.
-                    if (result == "unavailable|" && mode != "guard")
-                    { System.Threading.Thread.Sleep(40); result = Read(window, startX, startY, endX, endY, false, mode == "gesture"); }
+                    // the first query. Bounded retries also refresh stale hit testing.
+                    for (int retry = 0; result == "unavailable|" && mode != "guard" && retry < 2; retry++)
+                    { System.Threading.Thread.Sleep(retry == 0 ? 35 : 75); result = Read(window, startX, startY, endX, endY, false, mode == "gesture" || mode == "double", mode == "double"); }
                     Console.WriteLine(parts[0] + "|" + result);
                 }
-                catch (Exception) { Console.WriteLine("error|"); }
+                catch (Exception) { Console.WriteLine(line.Split('|')[0] + "|unavailable|"); }
             }
         }
 
@@ -76,7 +76,7 @@ namespace PointCursor
             return word == null ? "ignored|" : "word|" + Convert.ToBase64String(Encoding.UTF8.GetBytes(word));
         }
 
-        private static bool ReadGestureRange(TextPattern pattern, int startX, int startY, int endX, int endY, out string result)
+        private static bool ReadGestureRange(TextPattern pattern, int startX, int startY, int endX, int endY, bool doubleClick, out string result)
         {
             result = null;
             try
@@ -84,7 +84,7 @@ namespace PointCursor
                 TextPatternRange first = pattern.RangeFromPoint(new System.Windows.Point(startX, startY));
                 if (first == null) return false;
                 TextPatternRange range;
-                if (Math.Abs(startX - endX) <= 1 && Math.Abs(startY - endY) <= 1)
+                if (doubleClick)
                 {
                     range = first.Clone();
                     range.ExpandToEnclosingUnit(TextUnit.Word);
@@ -163,57 +163,76 @@ namespace PointCursor
             catch (InvalidOperationException) { return null; }
         }
 
-        private static string Read(IntPtr window, int startX, int startY, int endX, int endY, bool guardOnly, bool allowGestureRange)
+        private static string Read(IntPtr window, int startX, int startY, int endX, int endY, bool guardOnly, bool allowGestureRange, bool doubleClick)
         {
             if (window == IntPtr.Zero) return "stale|";
             bool isForeground = Native.GetForegroundWindow() == window;
             if (guardOnly && !isForeground) return "stale|";
             uint pid = Native.ProcessOf(window);
             if (pid == 0) return "stale|";
+            // Chromium exposes its document directly through IA2. Avoid spending the
+            // request budget walking UIA wrappers that have no TextPattern.
+            if (isForeground && LegacySelection.ProtectedFocus(window)) return "blocked|";
+            IntPtr renderer = guardOnly ? IntPtr.Zero : LegacySelection.RendererAtPoint(window, endX, endY);
+            if (renderer != IntPtr.Zero)
+            {
+                string legacy = LegacySelection.Read(window, startX, startY, endX, endY, allowGestureRange, doubleClick, renderer);
+                if (legacy != "unavailable|") return legacy;
+            }
             AutomationElement focused = isForeground ? AutomationElement.FocusedElement : null;
             if (!Belongs(focused, pid)) focused = null;
             if (focused != null && IsPassword(focused, pid)) return "blocked|";
-            // Foreground clipboard guards inspect the focused Chromium node. A
-            // completed background gesture is instead protected by its anchored hit
-            // element/range; querying a background document's stale focus can fail.
-            if (isForeground && LegacySelection.ProtectedFocus(window)) return "blocked|";
             if (guardOnly) return focused == null ? "unavailable|" : "safe|";
             AutomationElement hit = ElementAtGesture(window, pid, endX, endY);
-            if (!Belongs(hit, pid)) return "unavailable|";
-            if (IsPassword(hit, pid)) return "blocked|";
-            var visited = new HashSet<string>();
-            var clock = Stopwatch.StartNew();
-            // Query the selected control and its ancestors; never walk every desktop element.
-            foreach (AutomationElement origin in new[] { hit, focused })
+            if (hit != null && IsPassword(hit, pid)) return "blocked|";
+            string selected = ReadUia(hit, focused, pid, startX, startY, endX, endY, allowGestureRange, doubleClick);
+            return selected ?? LegacySelection.Read(window, startX, startY, endX, endY, allowGestureRange, doubleClick);
+        }
+
+        private static string ReadUia(AutomationElement hit, AutomationElement focused, uint pid,
+            int startX, int startY, int endX, int endY, bool allowGestureRange, bool doubleClick)
+        {
+            try
             {
-                AutomationElement current = origin;
-                for (int depth = 0; depth < 16 && Belongs(current, pid) && clock.ElapsedMilliseconds < 600; depth++)
+                var visited = new HashSet<string>();
+                var clock = Stopwatch.StartNew();
+                // Query the selected control and its ancestors; never walk every desktop element.
+                foreach (AutomationElement origin in new[] { hit, focused })
                 {
-                    if (current.Current.IsPassword) return "blocked|";
-                    string id = String.Join(",", current.GetRuntimeId());
-                    if (visited.Add(id))
+                    AutomationElement current = origin;
+                    for (int depth = 0; depth < 16 && Belongs(current, pid) && clock.ElapsedMilliseconds < 600; depth++)
                     {
-                        object pattern;
-                        if (current.TryGetCurrentPattern(TextPattern.Pattern, out pattern))
+                        if (current.Current.IsPassword) return "blocked|";
+                        string id = String.Join(",", current.GetRuntimeId());
+                        if (visited.Add(id))
                         {
-                            TextPatternRange[] ranges = ((TextPattern)pattern).GetSelection();
-                            if (ranges != null && ranges.Length > 1) return "ignored|";
-                            if (ranges != null && ranges.Length == 1)
+                            object pattern;
+                            if (current.TryGetCurrentPattern(TextPattern.Pattern, out pattern))
                             {
-                                string text = ranges[0].GetText(129);
-                                if (!String.IsNullOrEmpty(text))
+                                TextPatternRange[] ranges = ((TextPattern)pattern).GetSelection();
+                                if (ranges != null && ranges.Length > 1) return "ignored|";
+                                if (ranges != null && ranges.Length == 1)
                                 {
-                                    return allowGestureRange ? EncodeGestureWord(text, ranges[0], (TextPattern)pattern, (startX + endX) / 2, (startY + endY) / 2) : EncodeWord(text);
+                                    string text = ranges[0].GetText(129);
+                                    if (!String.IsNullOrEmpty(text))
+                                    {
+                                        return allowGestureRange ? EncodeGestureWord(text, ranges[0], (TextPattern)pattern, (startX + endX) / 2, (startY + endY) / 2) : EncodeWord(text);
+                                    }
                                 }
+                                string gesture;
+                                if (allowGestureRange && ReadGestureRange((TextPattern)pattern, startX, startY, endX, endY, doubleClick, out gesture)) return gesture;
                             }
-                            string gesture;
-                            if (allowGestureRange && ReadGestureRange((TextPattern)pattern, startX, startY, endX, endY, out gesture)) return gesture;
                         }
+                        current = TreeWalker.ControlViewWalker.GetParent(current);
                     }
-                    current = TreeWalker.ControlViewWalker.GetParent(current);
                 }
             }
-            return LegacySelection.Read(window, startX, startY, endX, endY, allowGestureRange);
+            // A stale UIA wrapper must not prevent the independently guarded IA2 path.
+            catch (ElementNotAvailableException) { }
+            catch (System.Runtime.InteropServices.COMException) { }
+            catch (InvalidOperationException) { }
+            catch (ArgumentException) { }
+            return null;
         }
     }
 }

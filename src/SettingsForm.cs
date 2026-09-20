@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Windows.Forms;
@@ -34,7 +33,7 @@ namespace PointCursor
         public bool AllowClose { get; set; }
         private readonly Label status, state;
         private readonly Button toggle;
-        public SettingsForm(AppSettings settings, IList<string> voices)
+        public SettingsForm(AppSettings settings, bool voiceAvailable)
         {
             Text = "PointCursor · 划词发音";
             Icon = Brand.CreateIcon();
@@ -72,10 +71,7 @@ namespace PointCursor
             options.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 64)); options.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             options.RowStyles.Add(new RowStyle(SizeType.Absolute, 48)); options.RowStyles.Add(new RowStyle(SizeType.Absolute, 62)); options.RowStyles.Add(new RowStyle(SizeType.Absolute, 62)); options.RowStyles.Add(new RowStyle(SizeType.Absolute, 44)); options.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             options.Controls.Add(Caption("语音"), 0, 0);
-            var voice = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Top, Margin = new Padding(0, 7, 0, 0), AccessibleName = "英文语音" };
-            foreach (string name in voices) voice.Items.Add(name);
-            if (voices.Count > 0) voice.SelectedItem = settings.Voice; else { voice.Items.Add("未安装英文语音"); voice.SelectedIndex = 0; voice.Enabled = false; }
-            voice.SelectedIndexChanged += delegate { settings.Voice = (string)voice.SelectedItem; Changed(); };
+            var voice = new Label { Text = SpeechService.VoiceName + (voiceAvailable ? "" : "（未安装）"), Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, AccessibleName = "英文语音", AutoEllipsis = true };
             options.Controls.Add(voice, 1, 0);
             options.Controls.Add(Caption("语速"), 0, 1);
             options.Controls.Add(Slider(-5, 5, settings.Rate, "英文语速", delegate(int value) { settings.Rate = value; Changed(); }, delegate(int value) { return value == 0 ? "标准" : (value < 0 ? "较慢  " : "较快  +") + value; }), 1, 1);
@@ -95,7 +91,7 @@ namespace PointCursor
 
             var actions = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, Margin = Padding.Empty };
             actions.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 138)); actions.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); actions.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 116));
-            var preview = Button("试听 hello", true); preview.Dock = DockStyle.Fill; preview.Enabled = voices.Count > 0; preview.Margin = Padding.Empty;
+            var preview = Button("试听 hello", true); preview.Dock = DockStyle.Fill; preview.Enabled = voiceAvailable; preview.Margin = Padding.Empty;
             preview.Click += delegate { if (PreviewRequested != null) PreviewRequested(); };
             var exit = Button("退出程序", false); exit.Dock = DockStyle.Fill; exit.Margin = Padding.Empty;
             exit.Click += delegate { if (ExitRequested != null) ExitRequested(); };
@@ -125,5 +121,13 @@ namespace PointCursor
             status.Text = text; state.Text = paused ? "●  划词发音已暂停" : "●  划词发音已开启";
             state.ForeColor = paused ? Brand.Muted : Brand.Accent; toggle.Text = paused ? "恢复" : "暂停";
         }
+#if POINTCURSOR_QA
+        protected override void WndProc(ref Message message)
+        {
+            // Regression fixture: simulate a slow UI without blocking the hook thread.
+            if (message.Msg == 0x8002) { System.Threading.Thread.Sleep(1500); return; }
+            base.WndProc(ref message);
+        }
+#endif
     }
 }

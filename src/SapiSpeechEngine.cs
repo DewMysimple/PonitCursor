@@ -8,7 +8,7 @@ namespace PointCursor
 {
     internal sealed class SapiSpeechEngine : IDisposable
     {
-        private sealed class Request { public long Ticket; public string Word, Voice; public int Rate, Volume; public bool Warm; }
+        private sealed class Request { public long Ticket; public string Word; public int Rate, Volume; public bool Warm; }
         private readonly object sync = new object();
         private readonly AutoResetEvent changed = new AutoResetEvent(false);
         private readonly AudioOutput output;
@@ -17,12 +17,12 @@ namespace PointCursor
         private volatile bool disposed;
         public event Action<string> Failed;
         public SapiSpeechEngine(AudioOutput output) { this.output = output; }
-        public void Speak(long ticket, string word, string voice, int rate, int volume, bool warm)
+        public void Speak(long ticket, string word, int rate, int volume, bool warm)
         {
             lock (sync)
             {
                 if (disposed) return;
-                pending = new Request { Ticket = ticket, Word = word, Voice = voice, Rate = rate, Volume = volume, Warm = warm };
+                pending = new Request { Ticket = ticket, Word = word, Rate = rate, Volume = volume, Warm = warm };
                 if (thread == null) { thread = new Thread(Pump) { IsBackground = true, Name = "PointCursor SAPI" }; thread.SetApartmentState(ApartmentState.MTA); thread.Start(); }
                 changed.Set();
             }
@@ -39,7 +39,7 @@ namespace PointCursor
                     if (request == null) { changed.WaitOne(250); continue; }
                     try
                     {
-                        if (synth == null) synth = new SpeechSynthesizer();
+                        if (synth == null) { synth = new SpeechSynthesizer(); synth.SelectVoice(SpeechService.VoiceName); }
                         using (var stream = new MemoryStream())
                         using (var done = new ManualResetEvent(false))
                         {
@@ -51,13 +51,13 @@ namespace PointCursor
                             synth.SpeakCompleted += completed;
                             try
                             {
-                                synth.SelectVoice(request.Voice); synth.Rate = request.Rate; synth.Volume = 100;
+                                synth.Rate = request.Rate; synth.Volume = 100;
                                 synth.SetOutputToAudioStream(stream, new SpeechAudioFormatInfo(24000, AudioBitsPerSample.Sixteen, AudioChannel.Mono));
                                 synth.SpeakAsync(request.Word);
                                 long start = Native.Now; bool cancel = false;
                                 while (!done.WaitOne(25))
                                 {
-                                    if (!cancel && (disposed || (!request.Warm && request.Ticket != output.Generation) || Native.Now - start > 5000))
+                                    if (!cancel && (disposed || request.Ticket != output.Generation || Native.Now - start > 5000))
                                     { cancel = true; synth.SpeakAsyncCancelAll(); }
                                     if (Native.Now - start > 7000) throw new TimeoutException();
                                 }
@@ -72,7 +72,7 @@ namespace PointCursor
                     catch (Exception)
                     {
                         if (synth != null) { synth.Dispose(); synth = null; }
-                        if (!disposed && request.Ticket == output.Generation && Failed != null) Failed("Windows 语音合成失败，请检查语音包或切换语音。");
+                        if (!disposed && request.Ticket == output.Generation && Failed != null) Failed("Zira 语音合成失败，请检查 Microsoft Zira Desktop 语音包。");
                     }
                 }
             }

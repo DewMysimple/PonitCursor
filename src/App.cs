@@ -59,7 +59,6 @@ namespace PointCursor
             bool reset;
             settings = AppSettings.Load(settingsPath, out reset);
             speech = new SpeechService();
-            if (!speech.Voices.Contains(settings.Voice) && speech.Voices.Count > 0) settings.Voice = speech.Voices[0];
             reader = new SelectionClient(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "PointCursor.Reader.exe"));
             messages = new MessageWindow();
             // Ensure async continuations run on the WinForms message thread, including --quiet startup.
@@ -133,10 +132,13 @@ namespace PointCursor
             CancellationToken token = request.Token;
             try
             {
-                SelectionResult result = await reader.QueryAsync(notice.Window, notice.StartX, notice.StartY, notice.X, notice.Y, false, token);
+                SelectionResult result = await reader.QueryAsync(notice.Window, notice.StartX, notice.StartY, notice.X, notice.Y, false, token, notice.Gesture == GestureKind.DoubleClick);
                 // The completed gesture owns this request. Later focus, caret and
                 // foreground changes neither revoke its result nor stop its playback.
                 if (token.IsCancellationRequested || exiting || paused || ticket != selection.Current) return;
+#if POINTCURSOR_QA
+                if (form != null && !form.IsDisposed) form.Text = "PointCursor · QA reader: " + result.Status + " / " + notice.Gesture;
+#endif
                 if (result.Word != null) SpeakOnce(result.Word, ticket);
                 else if (result.Status == "unavailable" || result.Status == "timeout") SetStatus(settings.CopyToSpeak ? "此处未能自动取词，选中单词后按 Ctrl+C 可发音。" : "此处未能自动取词，可在设置中开启复制后发音。");
             }
@@ -182,7 +184,7 @@ namespace PointCursor
             else SetStatus(speech.Error ?? "英文语音不可用。");
         }
         private void Preview()
-        { Invalidate(true); if (speech.Speak("hello", settings)) SetStatus(speech.IsKokoroVoice(settings.Voice) ? "正在生成试听 · hello" : "试听 · hello"); else SetStatus(speech.Error ?? "英文语音不可用。"); }
+        { Invalidate(true); if (speech.Speak("hello", settings)) SetStatus("试听 · hello"); else SetStatus(speech.Error ?? "英文语音不可用。"); }
         private void SetStatus(string value)
         { status = value; if (form != null && !form.IsDisposed) form.UpdateStatus(status, paused); }
         private string Pronounced(string word)
@@ -205,7 +207,7 @@ namespace PointCursor
         {
             if (form == null || form.IsDisposed)
             {
-                form = new SettingsForm(settings, speech.Voices);
+                form = new SettingsForm(settings, speech.Available);
                 form.SettingsChanged += delegate { Invalidate(true); if (!paused) speech.Prepare(settings); if (!settings.Save(settingsPath)) SetStatus("设置无法保存，本次运行仍然有效。"); };
                 form.ToggleRequested += delegate { SetPaused(!paused); };
                 form.PreviewRequested += delegate { Preview(); };

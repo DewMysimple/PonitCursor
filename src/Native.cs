@@ -6,6 +6,8 @@ namespace PointCursor
     internal static class Native
     {
         public delegate IntPtr HookProc(int code, IntPtr message, IntPtr data);
+        [StructLayout(LayoutKind.Sequential)] public struct Message
+        { public IntPtr Window; public uint Id; public UIntPtr WParam; public IntPtr LParam; public uint Time; public Point Point; public uint Private; }
         [StructLayout(LayoutKind.Sequential)] public struct Point { public int X, Y; }
         [StructLayout(LayoutKind.Sequential)] public struct MouseData { public Point Point; public uint Mouse, Flags, Time; public UIntPtr Extra; }
         [StructLayout(LayoutKind.Sequential)] public struct KeyData { public uint Key, Scan, Flags, Time; public UIntPtr Extra; }
@@ -14,6 +16,8 @@ namespace PointCursor
         [DllImport("user32.dll")] public static extern IntPtr CallNextHookEx(IntPtr hook, int code, IntPtr message, IntPtr data);
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr GetModuleHandle(string name);
         [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+        [DllImport("user32.dll")] public static extern IntPtr WindowFromPoint(Point point);
+        [DllImport("user32.dll")] public static extern IntPtr GetAncestor(IntPtr window, uint flags);
         [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr window, out uint process);
         [DllImport("user32.dll")] public static extern short GetAsyncKeyState(int key);
         [DllImport("user32.dll")] public static extern uint GetDoubleClickTime();
@@ -33,6 +37,12 @@ namespace PointCursor
         [DllImport("kernel32.dll")] public static extern ulong GetTickCount64();
         [DllImport("user32.dll")] public static extern bool DestroyIcon(IntPtr icon);
         [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr window, int message, IntPtr wparam, IntPtr lparam);
+        [DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();
+        [DllImport("user32.dll")] public static extern bool PostThreadMessage(uint thread, uint message, UIntPtr wparam, IntPtr lparam);
+        [DllImport("user32.dll")] public static extern int GetMessage(out Message message, IntPtr window, uint min, uint max);
+        [DllImport("user32.dll")] public static extern bool PeekMessage(out Message message, IntPtr window, uint min, uint max, uint remove);
+        [DllImport("user32.dll")] public static extern bool TranslateMessage(ref Message message);
+        [DllImport("user32.dll")] public static extern IntPtr DispatchMessage(ref Message message);
         [DllImport("user32.dll")] public static extern IntPtr GetClipboardOwner();
         public static long Now { get { return (long)GetTickCount64(); } }
         public static uint ProcessOf(IntPtr window) { uint pid; GetWindowThreadProcessId(window, out pid); return pid; }

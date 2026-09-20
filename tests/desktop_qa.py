@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 import subprocess
 import time
+import argparse
 
 ROOT = Path(__file__).resolve().parents[1]
 BIN = ROOT / "build" / "tests"
@@ -133,6 +134,10 @@ def restore_clipboard(snapshot, sequence, owner):
     finally: u.CloseClipboard()
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--stress', type=int, default=0)
+    parser.add_argument('--copy', action='store_true', help='Opt in to clipboard interaction on synthetic text')
+    args = parser.parse_args()
     previous = u.GetForegroundWindow(); cursor = W.POINT(); u.GetCursorPos(C.byref(cursor))
     app = fixture = None; checks = []; snapshot = None; copy_sequence = None; fw = None
     def check(name, condition):
@@ -180,13 +185,41 @@ def main():
         hello_count = pronunciation_count(aw, "hello")
         foreground(fw); click(x, y, True); wait(lambda: pronunciation_count(aw, "hello") > hello_count)
         check("reselecting previous word reads again", True)
+        # Windows recognizes a double click on the second DOWN, even when its
+        # release occurs after the double-click interval has elapsed.
+        time.sleep(.6)
+        hello_count = pronunciation_count(aw, "hello")
+        click(x, y)
+        u.mouse_event(2, 0, 0, 0, 0); time.sleep(.7); u.mouse_event(4, 0, 0, 0, 0)
+        wait(lambda: pronunciation_count(aw, "hello") > hello_count)
+        check("long second click hold still pronounces hello", True)
+        # A busy settings/message thread used to make Windows remove both hooks.
+        # Test a gesture during the stall, then another after it has finished.
+        for attempt in range(2):
+            time.sleep(.6)
+            before = pronunciation_count(aw, "hello")
+            u.PostMessageW(aw, 0x8002, 0, 0); time.sleep(.1)
+            click(x, y, True)
+            wait(lambda: pronunciation_count(aw, "hello") > before, 5)
+        check("hooks survive repeated 1.5 second UI stalls", True)
+        latencies = []
+        for index in range(args.stress):
+            word = "world" if index % 2 == 0 else "hello"
+            px, py = position(6 if index % 2 == 0 else 0)
+            before = pronunciation_count(aw, word)
+            started = time.monotonic(); click(px + 10, py, True)
+            wait(lambda: pronunciation_count(aw, word) > before, 3)
+            latencies.append(round((time.monotonic() - started) * 1000))
+        if latencies:
+            check(f"{len(latencies)} consecutive alternating double clicks", True)
+            checks.append({"double_click_ms": latencies, "max_ms": max(latencies)})
         pause = next(h for h in windows(aw) if text(h) == "暂停")
         u.SendMessageW(pause, 0xF5, 0, 0)
         world_x,world_y=position(6);click(world_x+10,world_y,True); time.sleep(1)
         check("pause suppresses automatic playback", any(s.startswith("已暂停") for s in status(aw)))
         u.SendMessageW(pause, 0xF5, 0, 0)
         # A selection made without a mouse gesture exercises only Ctrl+C fallback.
-        snapshot = clipboard_snapshot()
+        snapshot = clipboard_snapshot() if args.copy else None
         if snapshot is not None:
             foreground(fw); click(x, y); key(0x1B); key(0x1B, True)
             u.SendMessageW(rich, 0xB1, 6, 11)
@@ -204,7 +237,7 @@ def main():
             copy_sequence = u.GetClipboardSequenceNumber()
             wait(lambda: pronunciation_count(aw, "world") > first_copy_count)
             check("repeated Ctrl+C for the same word is accepted", True)
-        else: checks.append("SKIP clipboard interaction: cannot losslessly snapshot current formats")
+        else: checks.append("SKIP clipboard interaction: not opted in or cannot safely snapshot formats")
         password = next(h for h in windows(fw) if "EDIT" in cls(h).upper() and h != rich)
         area2 = rect(password); baseline = status(aw)
         click(area2.left + 20, area2.top + 10, True); time.sleep(1.2)

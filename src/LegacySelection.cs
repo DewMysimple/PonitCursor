@@ -157,7 +157,8 @@ namespace PointCursor
                 // Reject cross-object ranges instead of reading a cropped word out of a sentence.
                 if (!same) return "ignored|";
                 int start = Math.Min(range.StartOffset, range.EndOffset), end = Math.Max(range.StartOffset, range.EndOffset);
-                if (start < 0 || end <= start || (long)end - start > 128) return "ignored|";
+                if (start == end) return "unavailable|";
+                if (start < 0 || end < start || (long)end - start > 128) return "ignored|";
                 object item = Marshal.GetObjectForIUnknown(range.Start);
                 var accessible = item as IAccessible;
                 if (!Belongs(accessible, pid) || ProtectedAncestry(accessible, pid)) return "blocked|";
@@ -200,12 +201,12 @@ namespace PointCursor
             string word = WordRules.ReconcileGesture(selected, context, enclosing);
             return word == null ? "ignored|" : "word|" + Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(word));
         }
-        private static bool ReadGestureRange(AccessibleText text, int startX, int startY, int endX, int endY, out string result)
+        private static bool ReadGestureRange(AccessibleText text, int startX, int startY, int endX, int endY, bool doubleClick, out string result)
         {
             result = null;
             int start, end;
             string selected;
-            if (Math.Abs(startX - endX) <= 1 && Math.Abs(startY - endY) <= 1)
+            if (doubleClick)
             {
                 int offset;
                 if (text.OffsetAtPoint(endX, endY, 0, out offset) < 0 || text.TextAtOffset(offset, 1, out start, out end, out selected) < 0) return false;
@@ -221,31 +222,36 @@ namespace PointCursor
             result = EncodeGestureWord(text, start, end, selected);
             return true;
         }
-        public static string Read(IntPtr window, int startX, int startY, int endX, int endY, bool allowGestureRange)
+        internal static IntPtr RendererAtPoint(IntPtr window, int x, int y)
+        {
+            IntPtr renderer = IntPtr.Zero;
+            int scanned = 0;
+            EnumChildWindows(window, delegate(IntPtr candidate, IntPtr unused) {
+                var name = new System.Text.StringBuilder(128); GetClassName(candidate, name, name.Capacity);
+                Rect bounds;
+                if (name.ToString() == "Chrome_RenderWidgetHostHWND" && IsWindowVisible(candidate) && GetWindowRect(candidate, out bounds)
+                    && x >= bounds.Left && x < bounds.Right && y >= bounds.Top && y < bounds.Bottom) { renderer = candidate; return false; }
+                return ++scanned < 64;
+            }, IntPtr.Zero);
+            return renderer;
+        }
+        public static string Read(IntPtr window, int startX, int startY, int endX, int endY, bool allowGestureRange, bool doubleClick)
+        { return Read(window, startX, startY, endX, endY, allowGestureRange, doubleClick, RendererAtPoint(window, endX, endY)); }
+
+        internal static string Read(IntPtr window, int startX, int startY, int endX, int endY, bool allowGestureRange, bool doubleClick, IntPtr renderer)
         {
             try
             {
                 uint pid = Native.ProcessOf(window);
-                IAccessible hit = null; object child = 0;
+                IAccessible hit = null, rendererDocument = null; object child = 0;
                 // Electron's native Views overlay can mask the renderer in global hit testing.
                 // Obtain the visible renderer's MSAA document directly, then hit-test within it.
-                IntPtr renderer = IntPtr.Zero;
-                int scanned = 0;
-                EnumChildWindows(window, delegate(IntPtr candidate, IntPtr unused) {
-                    var name = new System.Text.StringBuilder(128); GetClassName(candidate, name, name.Capacity);
-                    Rect bounds;
-                    if (name.ToString() == "Chrome_RenderWidgetHostHWND" && IsWindowVisible(candidate) && GetWindowRect(candidate, out bounds)
-                        && endX >= bounds.Left && endX < bounds.Right && endY >= bounds.Top && endY < bounds.Bottom) { renderer = candidate; return false; }
-                    return ++scanned < 64;
-                }, IntPtr.Zero);
                 if (renderer != IntPtr.Zero)
                 {
                     Guid iid = new Guid("618736E0-3C3D-11CF-810C-00AA00389B71"); object document;
                     if (AccessibleObjectFromWindow(renderer, 0xFFFFFFFC, ref iid, out document) >= 0 && document is IAccessible)
                     {
-                        hit = (IAccessible)document; child = 0;
-                        string whole = ReadDocumentSelection(hit, pid, allowGestureRange);
-                        if (whole != null && whole != "unavailable|") return whole;
+                        hit = rendererDocument = (IAccessible)document; child = 0;
                     }
                 }
                 if (hit == null && (AccessibleObjectFromPoint(new Native.Point { X = endX, Y = endY }, out hit, out child) < 0 || !Belongs(hit, pid))) return "unavailable|";
@@ -261,6 +267,13 @@ namespace PointCursor
                     if (Protected(hit, 0)) return "blocked|";
                 }
                 if (ProtectedAncestry(hit, pid)) return "blocked|";
+                // Protect the actual hit before consulting the document-wide selection;
+                // a password input may coexist with an old selection elsewhere.
+                if (rendererDocument != null)
+                {
+                    string whole = ReadDocumentSelection(rendererDocument, pid, allowGestureRange);
+                    if (whole != null && whole != "unavailable|") return whole;
+                }
                 var clock = Stopwatch.StartNew();
                 for (int depth = 0; depth < 16 && Belongs(hit, pid) && clock.ElapsedMilliseconds < 500; depth++)
                 {
@@ -291,7 +304,7 @@ namespace PointCursor
                         }
                     }
                     string gesture;
-                    if (allowGestureRange && text != null && ReadGestureRange(text, startX, startY, endX, endY, out gesture)) return gesture;
+                    if (allowGestureRange && text != null && ReadGestureRange(text, startX, startY, endX, endY, doubleClick, out gesture)) return gesture;
                     hit = hit.accParent as IAccessible;
                 }
             }

@@ -3,6 +3,7 @@ import ctypes as C
 from ctypes import wintypes as W
 import json
 import time
+import argparse
 import desktop_qa as q
 from obsidian_qa import evaluate
 
@@ -29,13 +30,17 @@ def clear_selection(mode):
         evaluate("app.workspace.activeLeaf.view.editor.setCursor({line:0,ch:0});true")
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--stress', type=int, default=0)
+    parser.add_argument('--copy', action='store_true')
+    args = parser.parse_args()
     previous=q.u.GetForegroundWindow();cursor=W.POINT();q.u.GetCursorPos(C.byref(cursor))
     app=None;aw=None;snapshot=None;sequence=None;results=[]
     hwnd=next(h for h in q.windows() if 'ObsidianTestVault' in q.text(h))
     try:
         app=q.start(q.BIN/'PointCursor.exe');aw=q.wait(lambda:q.window_for(app.pid,True));q.u.ShowWindow(aw,9)
         pause=next(h for h in q.windows(aw) if q.text(h)=='暂停')
-        snapshot=q.clipboard_snapshot()
+        snapshot=q.clipboard_snapshot() if args.copy else None
         for mode,state in [('live-preview',{'mode':'source','source':False}),('source',{'mode':'source','source':True}),('reading',{'mode':'preview'})]:
             mode_results_start=len(results)
             q.u.SendMessageW(pause,0xF5,0,0);q.u.SendMessageW(pause,0xF5,0,0)
@@ -59,14 +64,23 @@ def main():
                 chord(0x11,0x5A)
                 q.wait(lambda:evaluate("app.workspace.activeLeaf.view.editor.getValue()")==original,3)
             r=select(2,0,5);x,y=coordinates(r);clear_selection(mode);time.sleep(.05)
+            hello_count=q.pronunciation_count(aw,'hello')
             clock=time.monotonic();q.click(x+8,y,True)
-            q.wait(lambda:any(value.startswith('已发音 · hello') for value in q.status(aw)),3)
+            q.wait(lambda:q.pronunciation_count(aw,'hello')>hello_count,3)
             results.append({'mode':mode,'case':'double-click','passed':True,'ms':round((time.monotonic()-clock)*1000)})
             r=select(2,6,11);x,y=coordinates(r)
             # Clear the script-created selection before exercising native mouse dragging.
-            clear_selection(mode);time.sleep(.1);q.drag(x+1,y,x+r['width']-1,y)
-            q.wait(lambda:any(value.startswith('已发音 · world') for value in q.status(aw)),3)
+            clear_selection(mode);time.sleep(.1)
+            world_count=q.pronunciation_count(aw,'world');q.drag(x+1,y,x+r['width']-1,y)
+            q.wait(lambda:q.pronunciation_count(aw,'world')>world_count,3)
             results.append({'mode':mode,'case':'drag','passed':True})
+            for index in range(args.stress):
+                word,start,end=('hello',0,5) if index%2==0 else ('world',6,11)
+                r=select(2,start,end);x,y=coordinates(r);clear_selection(mode)
+                before=q.pronunciation_count(aw,word)
+                clock=time.monotonic();q.click(x+8,y,True)
+                q.wait(lambda:q.pronunciation_count(aw,word)>before,3)
+                results.append({'mode':mode,'case':'repeat-double-click','word':word,'passed':True,'ms':round((time.monotonic()-clock)*1000)})
             if snapshot is not None:
                 q.key(0x1B);q.key(0x1B,True);select(4,11,16)
                 q.key(0x11);q.key(0x43);q.key(0x43,True);q.key(0x11,True)
@@ -75,7 +89,7 @@ def main():
                 results.append({'mode':mode,'case':'Ctrl+C','passed':True})
             print(json.dumps(results[mode_results_start:],ensure_ascii=True),flush=True)
     except Exception:
-        print('DIAGNOSTIC:',q.status(aw),evaluate('window.getSelection().toString()'),q.text(q.u.GetForegroundWindow()),flush=True)
+        print('DIAGNOSTIC:',q.text(aw),q.status(aw),evaluate('window.getSelection().toString()'),q.text(q.u.GetForegroundWindow()),flush=True)
         raise
     finally:
         if sequence is not None:q.restore_clipboard(snapshot,sequence,hwnd)

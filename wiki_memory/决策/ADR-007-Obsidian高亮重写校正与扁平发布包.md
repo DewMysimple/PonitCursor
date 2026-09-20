@@ -3,9 +3,10 @@ type: decision
 status: active
 kind: architecture
 importance: high
-updated: 2026-09-11
+updated: 2026-09-20
 topic: obsidian-highlight-reconciliation-and-flat-package
 source_logs:
+  - "[[日志/2026-09-20-收敛Zira语音并修复输入与取词稳定性]]"
   - "[[日志/2026-09-11-兼容Obsidian快速高亮并扁平化发布包]]"
 supersedes: null
 ---
@@ -40,3 +41,7 @@ supersedes: null
 ## 来源
 
 - [[日志/2026-09-11-兼容Obsidian快速高亮并扁平化发布包|整改日志]]
+
+## 2026-09-20 发布内容调整
+
+[[决策/ADR-008-固定Zira与独立输入线程]] 移除了 Kokoro 和相关工具，当前归档精确包含八个程序/说明文件；本决策的高亮校正和扁平根目录原则继续有效，上述 Kokoro 验证项仅对应当时版本。

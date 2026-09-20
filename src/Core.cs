@@ -94,13 +94,11 @@ namespace PointCursor
         public bool CopyToSpeak = true;
         public int Rate = -1;
         public int Volume = 85;
-        public string Voice = "Microsoft Zira Desktop";
         public static string FilePath { get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PointCursor", "settings.xml"); } }
         public void Validate()
         {
             Rate = Math.Max(-5, Math.Min(5, Rate));
             Volume = Math.Max(0, Math.Min(100, Volume));
-            if (Voice == null) Voice = "";
         }
         public static AppSettings Load(string path, out bool reset)
         {

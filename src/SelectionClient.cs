@@ -17,16 +17,27 @@ namespace PointCursor
     {
         private readonly SemaphoreSlim mutex = new SemaphoreSlim(1, 1);
         private Process worker;
-        private bool disposed;
+        private volatile bool disposed;
+        private readonly CancellationTokenSource shutdown = new CancellationTokenSource();
+        private readonly CancellationToken shutdownToken;
         private long serial;
         private readonly string executable;
         private readonly string arguments;
-        public SelectionClient(string path, string arguments = "") { executable = path; this.arguments = arguments; }
-        public async Task<SelectionResult> QueryAsync(IntPtr window, int x, int y, bool guardOnly, CancellationToken cancel)
-        { return await QueryAsync(window, x, y, x, y, guardOnly, cancel); }
-        public async Task<SelectionResult> QueryAsync(IntPtr window, int startX, int startY, int endX, int endY, bool guardOnly, CancellationToken cancel)
+        public SelectionClient(string path, string arguments = "")
+        { executable = path; this.arguments = arguments; shutdownToken = shutdown.Token; }
+        public Task<SelectionResult> QueryAsync(IntPtr window, int x, int y, bool guardOnly, CancellationToken cancel)
+        { return QueryAsync(window, x, y, x, y, guardOnly, cancel); }
+        public Task<SelectionResult> QueryAsync(IntPtr window, int startX, int startY, int endX, int endY, bool guardOnly, CancellationToken cancel, bool doubleClick = false)
         {
-            await mutex.WaitAsync(cancel);
+            // Process creation, pipe writes and teardown must not run on the UI thread.
+            return Task.Run(async delegate {
+                using (var linked = CancellationTokenSource.CreateLinkedTokenSource(cancel, shutdownToken))
+                    return await QueryCore(window, startX, startY, endX, endY, guardOnly, linked.Token, doubleClick).ConfigureAwait(false);
+            });
+        }
+        private async Task<SelectionResult> QueryCore(IntPtr window, int startX, int startY, int endX, int endY, bool guardOnly, CancellationToken cancel, bool doubleClick)
+        {
+            await mutex.WaitAsync(cancel).ConfigureAwait(false);
             try
             {
                 if (disposed) return new SelectionResult("unavailable", null);
@@ -40,11 +51,11 @@ namespace PointCursor
                     });
                 }
                 string id = (++serial).ToString(System.Globalization.CultureInfo.InvariantCulture);
-                worker.StandardInput.WriteLine(id + "|" + window.ToInt64() + "|" + startX + "|" + startY + "|" + endX + "|" + endY + "|" + (guardOnly ? "guard" : "gesture"));
+                worker.StandardInput.WriteLine(id + "|" + window.ToInt64() + "|" + startX + "|" + startY + "|" + endX + "|" + endY + "|" + (guardOnly ? "guard" : doubleClick ? "double" : "gesture"));
                 worker.StandardInput.Flush();
                 Task<string> read = worker.StandardOutput.ReadLineAsync();
                 Task limit = Task.Delay(900, cancel);
-                if (await Task.WhenAny(read, limit) != read)
+                if (await Task.WhenAny(read, limit).ConfigureAwait(false) != read)
                 {
                     StopWorker();
                     // Observe a pipe error after killing a stuck provider, if any.
@@ -52,11 +63,12 @@ namespace PointCursor
                     cancel.ThrowIfCancellationRequested();
                     return new SelectionResult("timeout", null);
                 }
-                string line = await read;
+                string line = await read.ConfigureAwait(false);
                 cancel.ThrowIfCancellationRequested();
                 if (line == null || !line.StartsWith(id + "|", StringComparison.Ordinal)) { StopWorker(); return new SelectionResult("unavailable", null); }
                 string[] fields = line.Split('|');
-                string word = fields.Length == 3 && fields[1] == "word" ? WordRules.Normalize(Encoding.UTF8.GetString(Convert.FromBase64String(fields[2]))) : null;
+                if (fields.Length != 3) { StopWorker(); return new SelectionResult("unavailable", null); }
+                string word = fields[1] == "word" ? WordRules.Normalize(Encoding.UTF8.GetString(Convert.FromBase64String(fields[2]))) : null;
                 return new SelectionResult(fields[1], word);
             }
             catch (OperationCanceledException) { StopWorker(); throw; }
@@ -65,7 +77,7 @@ namespace PointCursor
                 if (!(ex is IOException) && !(ex is InvalidOperationException) && !(ex is System.ComponentModel.Win32Exception) && !(ex is FormatException)) throw;
                 StopWorker(); return new SelectionResult("unavailable", null);
             }
-            finally { mutex.Release(); }
+            finally { if (disposed) StopWorker(); mutex.Release(); }
         }
         private static void ObserveFault(Task task)
         { task.ContinueWith(t => { var ignored = t.Exception; }, TaskContinuationOptions.OnlyOnFaulted); }
@@ -75,6 +87,12 @@ namespace PointCursor
             try { if (!worker.HasExited) worker.Kill(); } catch (InvalidOperationException) { } catch (System.ComponentModel.Win32Exception) { }
             worker.Dispose(); worker = null;
         }
-        public void Dispose() { disposed = true; StopWorker(); }
+        public void Dispose()
+        {
+            if (disposed) return;
+            disposed = true; shutdown.Cancel(); shutdown.Dispose();
+            // A query owns all process state until its finally block completes.
+            if (mutex.Wait(0)) { try { StopWorker(); } finally { mutex.Release(); } }
+        }
     }
 }

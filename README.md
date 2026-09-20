@@ -1,77 +1,73 @@
 # PointCursor · 离线划词发音
 
-在 Windows 中用鼠标选中一个英文单词，松开后自动播放英文读音。针对 Obsidian 笔记做了兼容处理，也可用于支持选区读取的其他软件。
+在 Windows 中双击或拖选一个英文单词，松开鼠标后使用 **Microsoft Zira Desktop** 发音。主要适配 Obsidian，也可用于暴露辅助功能选区的文本控件和浏览器。
 
 ## 开始使用
 
-1. 把 `PointCursor.zip` 解压到一个空文件夹；ZIP 根层直接包含 `PointCursor.exe`、`Kokoro/` 等程序文件，不再额外套一层 `PointCursor` 子目录，请保持这些文件的相对位置不变。
-2. 双击 `PointCursor.exe`。默认启用划词发音；可使用 Microsoft Zira 等 Windows 系统语音，也可在设置中选择内置 Kokoro 神经语音。
-3. 回到 Obsidian，**双击或拖选** `hello`、`English` 等英文单词，松开鼠标即可听到读音。
-4. 未能自动取词时，保持选中，按 **Ctrl+C**。关闭设置窗口后，程序继续在系统托盘运行；托盘图标可能在任务栏右侧的隐藏图标区域。
+1. 把 `dist/PointCursor.zip` 解压到空文件夹，双击 `PointCursor.exe`。ZIP 根层就是程序目录。
+2. 回到文档，双击或拖选 `hello`、`English` 等英文单词。
+3. 自动取词失败时，可保持选中并明确按 **Ctrl+C** 补充发音。
+4. 关闭设置窗口后程序仍在托盘运行；双击托盘图标打开设置，选择“退出程序”才会彻底退出。
 
-只选中单个词；整句、中文、数字和网址会被忽略。`don't`、`well-known` 可读。单击放置光标、鼠标悬停、文档里原有的黄色标记不会触发发音。选词后立即按 Obsidian 的 **Ctrl+Shift+H** 高亮，即使文字马上被改写成 `==word==`，仍会播报刚才选中的完整单词。重新选中同一个词或对同一选区再次按 Ctrl+C 都可以重听。程序取得单词后，普通鼠标、键盘、光标或托盘窗口状态变化不会再丢弃该词或截断已经开始的读音。
+仅接受单个英文词，支持 `don't`、`well-known`；整句、中文、数字、网址和密码控件会跳过。单击或悬停不会触发。同词重新选择可以重听，每次明确 Ctrl+C 也可重听。完成划词后立即切窗、点击别处或在 Obsidian 高亮，不会主动撤销已提交请求。
 
-## 设置
+## 语音与设置
 
-- 双击托盘图标：打开中文设置窗口。
-- **暂停／恢复**：同时暂停／恢复自动取词和复制发音；暂停时仍可手动试听。
-- **语音、语速、音量**：即时生效并保存在本机。语音列表包含本机 Windows 英文语音，以及 20 个美式、8 个英式 Kokoro 声线。默认语速略慢，音量 85%。
-- **复制后发音**：默认开启，可单独关闭。只在你按 Ctrl+C 后读取这一次新复制的短文本，不模拟复制、不替换剪贴板。每次 Ctrl+C 都是独立的发音请求；同一个词可以连续复制、连续重听。
-- **退出程序**：彻底退出并移除托盘图标。没有设置开机自启动；启动时使用 `PointCursor.exe --quiet` 可直接进入托盘。
+- 语音固定为 **Microsoft Zira Desktop**，不再提供声线选择或其他语音后端。
+- 语速、音量和“复制后发音”即时生效；默认语速 -1、音量 85%、复制发音开启。
+- 暂停同时停用自动取词和复制发音；仍可手动试听 `hello`。
+- 使用 `PointCursor.exe --quiet` 可直接进入托盘；不自动设置开机启动。
+- 旧设置文件可直接沿用：忽略旧的 `Voice` 字段，保留语速、音量和复制开关；下次保存时移除旧字段。
 
 ## 运行要求与边界
 
-- Windows 11 x64、.NET Framework 4.8 和可用音频设备。Windows 系统语音是可选项；便携包已经包含 Kokoro 英文语音。
-- 运行不需要网络、账号、API 密钥、Python、另行安装 Node.js、浏览器扩展或 Obsidian 插件；无管理员权限要求。Kokoro 使用随程序发布的 Node.js、ONNX Runtime、量化模型和声线文件，运行时明确禁止远程模型下载。
-- 默认 Zira 不可用时，可选择 Kokoro 或其他已安装的英文系统语音。安装新的 Windows 系统语音后需要重启 PointCursor 才会刷新列表。
-- 选择 Kokoro 后会在后台加载约 88 MiB 模型并静默预热；刚启动时可能需要约 1～3 秒，之后复用模型。新选词立即使旧音频失效，只保留最新待合成词；普通旧推理完成后丢弃结果，取消后仍卡住超过约 1 秒才终止工作进程。
-- 无需改变 Obsidian 的启动参数。浏览器第一次建立辅助功能信息时可能稍慢，未成功时可再选一次或按 Ctrl+C。
-- 应用对辅助功能接口的支持决定兼容性。管理员权限软件、扫描图片、PDF、特殊插件视图和多屏不同缩放比例未作完整适配；详见 `COMPATIBILITY.md`。
-- 发音由所选 Windows 或 Kokoro 后端按独立单词合成；同形异音词不会结合上下文判断读音。跨多个格式片段的选区会保守跳过，避免把整句里的某一部分当作单词。
+Windows x64、.NET Framework 4.8、已安装并启用的 Microsoft Zira Desktop、可用音频设备。没有 Zira 时会明确提示，不自动改用其他声音。程序不会卸载或修改系统中的其他语音。
 
-## 语音故障排查
+运行完全离线，无账号、密钥、Python、Node.js、模型、浏览器扩展或 Obsidian 插件依赖。辅助功能支持取决于目标应用；PDF、图片、管理员权限窗口、特殊插件和混合 DPI 尚未完整验证，见 `COMPATIBILITY.md`。独立单词合成不能结合上下文区分同形异音词。
 
-在解压后的程序目录执行：
+设置仅存于 `%LOCALAPPDATA%\PointCursor\settings.xml`。不保存单词历史或按键，不访问笔记文件，不主动复制或改写剪贴板；设置页临时显示最近发音词，退出后清除。复制发音只读取用户真实 Ctrl+C 后产生的新剪贴板短文本，并检查来源和密码状态。
+
+## 故障排查
+
+先打开设置，试听 `hello`：
+
+- 试听也无声：确认 Zira 已安装、音量不为 0、Windows 默认播放设备正常。安装语音后重启 PointCursor。
+- 试听正常但自动取词失败：检查是否暂停、是否只选了一个词；可尝试明确 Ctrl+C。目标控件不提供选区时仍可能无法读取。
+- 运行以下诊断，只在内存中合成固定 `hello`，不播放、不联网、不改设置：
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\diagnose.ps1
 ```
 
-诊断会校验 290 个运行时文件的大小和 SHA-256，并用固定的 `hello` 测试 Windows 与 Kokoro 合成，不播放声音、不修改设置。缺失或损坏会指出具体文件。源码环境先执行 `git lfs pull`，再重新构建；便携包用户重新完整解压，避免只替换 EXE。
+程序与 `PointCursor.Reader.exe`、`PointCursor.Core.dll` 和两个 `.config` 文件必须放在一起。升级推荐退出旧版后解压到空目录；本地重新构建会删除输出目录中旧的 Kokoro 资产。
 
-如果仍听到词头缺失，先在 Windows 中确认默认播放设备，再分别试听 Windows 和 Kokoro。程序的系统输出回录已经验证词头完整，但回录不能证明蓝牙耳机、显示器音箱等硬件最终发出的声音；设备类型和容易复现的词有助于进一步定位。
-
-## 本地数据
-
-设置文件：`%LOCALAPPDATA%\PointCursor\settings.xml`。仅保存语音、语速、音量和复制发音开关。
-
-不保存选中文字、阅读历史或按键记录，不访问笔记文件，不联网。设置窗口暂时显示最近一次发音的单词，退出后清除。密码控件会被跳过。
-
-取词辅助进程与主程序隔离。鼠标松开后约 10 毫秒即开始读取，同时记录划词起止位置；即使随后切换窗口或点击别处清空选区，仍会从原窗口和原手势范围完成这次取词。第三方软件取词卡住时，约 900 毫秒后终止该次读取，后续请求会重新启动辅助进程，不阻塞鼠标或设置窗口。
-
-## 从源码构建
-
-在项目目录执行 Windows PowerShell：
+## 构建与验证
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\build.ps1 -Test -Package
 ```
 
-也可直接双击仓库根目录的 `buildStart.cmd`，默认重新构建并生成下列两个发布产物；从命令行运行 `buildStart.cmd -Test` 时会额外执行完整自动测试。
+也可双击 `buildStart.cmd` 构建打包，或执行 `buildStart.cmd -Test` 加跑自动检查。仅使用系统 C# 编译器和系统程序集，不下载 NuGet、npm 或模型，不再需要 Git LFS 资产。
 
-使用 Windows 自带的 .NET Framework C# 编译器和系统程序集，不下载 NuGet 或 npm 包。Kokoro 运行时位于 `third_party\kokoro-runtime`，模型、声线、Node.js 和原生 ONNX Runtime 由 Git LFS 管理，JavaScript 编译产物也随仓库提交；因此首次克隆源码前需安装 Git LFS 并执行 `git lfs pull`，再确保整个运行时目录完整。构建会对照 `assets.tsv` 检查全部文件；运行时文本固定 LF 换行，避免换机检出后的哈希变化。维护者有意更新运行时后，运行 `python tools/runtime_manifest.py` 刷新清单并一同提交。
+- 程序目录：`dist/PointCursor`
+- 便携包：`dist/PointCursor.zip`
+- 测试程序：`build/tests`
+- 测试结果与截图：`build/qa`（不提交）
 
-- 可运行目录：`dist\PointCursor`
-- 便携压缩包：`dist\PointCursor.zip`（ZIP 根层就是程序根目录，不包含额外的 `PointCursor/` 包装目录）
-- 自动测试与桌面测试程序：`build\tests`
-- 测试截图和验证结果：`build\qa`
+桌面和 Obsidian 测试见 `tests/README.md`，只操作独立合成内容。发布包采用明确文件清单，旧模型或测试数据不会混入 ZIP。
 
-桌面测试说明见源码中的 `tests\README.md`。自动测试不操作已有笔记；桌面集成测试使用独立测试窗口或测试库。
+## 维护入口
 
-## 实现概要
+| 模块 | 职责 |
+| --- | --- |
+| `InputMonitor` / `SelectionGesture` | 专用消息线程监听输入；独立状态机识别双击和拖选，按事件时间计时，仅保留最新完成手势 |
+| `SelectionClient` | 后台启动及串行访问辅助进程，约 900ms 读取超时；取消、崩溃、坏响应后自动重建 |
+| `SelectionReader` / `LegacySelection` | Chromium/Electron 优先 IA2，其余 UIA；以来源窗口和手势类型读取真实选区或重建范围，分别检查密码与进程边界 |
+| `Core` | 单词过滤、请求代次、复制门控和设置 |
+| `SpeechService` / `SapiSpeechEngine` | 固定 Zira，在后台合成为内存 PCM，新请求取消旧请求 |
+| `AudioOutput` / `PcmAudio` | WASAPI 播放完整采样；设备首次打开有 150ms 静音准备，普通词不附加此延迟 |
+| `App` / `SettingsForm` | 托盘、界面和事件编排 |
 
-C# 5 / .NET Framework 4.8 / WinForms；UI Automation 优先读取选区，Obsidian 等 Electron 软件补充 MSAA / IAccessible2。Windows 语音由 `System.Speech` 在后台合成为内存 PCM；Kokoro 由独立本地工作进程执行音素转换和 ONNX 推理，生成 PCM16 临时 WAV，读入内存后立即删除。两者共用 24 kHz 单声道 WASAPI 播放通道，保留全部原始采样，不裁剪弱辅音或词头静音。启用期间通道持续输出静音待命；新开设备时先输出约 150 毫秒静音，普通选词不额外添加此等待。暂停会释放播放设备，恢复时重新准备。全局输入监听只识别选择动作与 Ctrl+C，所有耗时取词在独立进程中完成。
+双击类型随请求传递，读取器不再用“坐标相差不超过 1 像素”猜测双击。来源窗口在鼠标按下时锁定，避免松开后立即切窗的竞态。输入钩子不承担界面、磁盘、合成或进程操作；无结果只做有限重试，仍受辅助进程超时约束。
 
-Kokoro 模型、声线和运行时的来源、版本、许可证及哈希见 `third_party\kokoro-runtime\THIRD-PARTY-NOTICES.md`。
-
-接口参考：[微软 UI Automation](https://learn.microsoft.com/en-us/dotnet/api/system.windows.automation.textpattern.getselection)、[IAccessible2 文本接口](https://accessibility.linuxfoundation.org/a11yspecs/ia2/docs/html/interface_i_accessible_text.html)。
+接口参考：[Windows 低级鼠标钩子](https://learn.microsoft.com/en-us/windows/win32/winmsg/lowlevelmouseproc)、[UI Automation](https://learn.microsoft.com/en-us/dotnet/api/system.windows.automation.textpattern.getselection)、[IAccessible2](https://accessibility.linuxfoundation.org/a11yspecs/ia2/docs/html/interface_i_accessible_text.html)。

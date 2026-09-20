@@ -1,9 +1,9 @@
 ---
 type: decision
-status: active
+status: superseded
 kind: architecture
 importance: high
-updated: 2026-09-09
+updated: 2026-09-20
 topic: embedded-kokoro-offline-speech
 source_logs:
   - "[[日志/2026-09-09-修复语音延迟与词头播放]]"
@@ -15,7 +15,7 @@ supersedes: "[[决策/ADR-001-本地系统语音与桌面进程架构]]"
 
 ## 状态
 
-`active`
+`superseded`，由 [[决策/ADR-008-固定Zira与独立输入线程]] 替代。
 
 ## 背景
 
@@ -49,4 +49,4 @@ PointCursor 原先只列出 Windows 已安装的英文 SAPI 语音。用户希�
 
 ## 后续修复
 
-见 [[日志/2026-09-09-修复语音延迟与词头播放]]：新增显式 4 线程上限、后台预热、普通取消保留模型、卡死取消限时终止、两种引擎共享 PCM 输出和完整性清单。原有内置离线后端决策保持有效。
+见 [[日志/2026-09-09-修复语音延迟与词头播放]]：新增显式 4 线程上限、后台预热、普通取消保留模型、卡死取消限时终止、两种引擎共享 PCM 输出和完整性清单。此后该后端已按用户要求移除，见 ADR-008。

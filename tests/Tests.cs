@@ -22,7 +22,8 @@ namespace PointCursor
             try
             {
                 if (args.Length > 0 && args[0] == "--hang") { Console.ReadLine(); Thread.Sleep(10000); return 0; }
-                Rules(); Gates(); Settings(); Pcm(); RuntimeChecks(); Audio(); KokoroBridge(); KokoroFailures(); SapiBridge(); Worker().GetAwaiter().GetResult();
+                if (args.Length > 0 && args[0] == "--fault-reader") return FaultReader();
+                Rules(); Gates(); Gestures(); Settings(); Pcm(); Audio(); SapiBridge(); Worker().GetAwaiter().GetResult();
                 if (args.Length > 0 && args[0] == "--render") Render(args[1]);
                 Console.WriteLine("TOTAL: " + passed + " passed"); return 0;
             }
@@ -66,6 +67,30 @@ namespace PointCursor
             copy.Arm(a, UInt32.MaxValue, 100); Check(copy.TryConsume(a, 0, 110), "clipboard counter wrap");
             copy.Arm(a, 1, 100); copy.Reset(); Check(!copy.TryConsume(a, 2, 110), "pause disarms copy");
         }
+        private static void Gestures()
+        {
+            var tracker = new SelectionGesture(4, 4, 4, 4, 500);
+            IntPtr window = new IntPtr(1);
+            tracker.Down(window, 10, 10, 100);
+            Check(tracker.Up( 10, 10) == GestureKind.None, "single click is not a selection");
+            tracker.Down(window, 10, 10, 450);
+            Check(tracker.Up( 12, 11) == GestureKind.DoubleClick, "double click tolerates jitter and a long second hold");
+            tracker.Down(window, 10, 10, 480);
+            Check(tracker.Up( 10, 10) == GestureKind.None, "third click does not produce duplicate word");
+            tracker.Reset(); tracker.Down(window, 10, 10, 100);
+            tracker.Up( 10, 10); tracker.Down(window, 10, 10, 650);
+            Check(tracker.Up( 10, 10) == GestureKind.None, "slow clicks are not a double click");
+            tracker.Reset(); tracker.Down(window, 10, 10, UInt32.MaxValue - 40);
+            tracker.Up( 10, 10); tracker.Down(window, 10, 10, 20);
+            Check(tracker.Up( 10, 10) == GestureKind.DoubleClick, "input timestamp wrap preserves double click");
+            tracker.Down(window, 10, 10, 1000);
+            Check(tracker.Up( 40, 10) == GestureKind.Drag, "coalesced pointer movement still detects drag");
+            tracker.Down(window, 10, 10, 1100); tracker.Up(10, 10);
+            tracker.Down(new IntPtr(2), 10, 10, 1150);
+            Check(tracker.Up(10, 10) == GestureKind.None, "clicks in different windows do not form a double click");
+            tracker.Down(window, 10, 10, 1200); tracker.Reset();
+            Check(tracker.Up( 40, 10) == GestureKind.None, "interrupted gesture reset");
+        }
         private static void Settings()
         {
             string folder = Path.Combine(Path.GetTempPath(), "PointCursor-tests-" + Guid.NewGuid().ToString("N"));
@@ -81,6 +106,10 @@ namespace PointCursor
                 var loaded = AppSettings.Load(path, out reset);
                 Check(!reset && loaded.Rate == 5 && loaded.Volume == 0 && !loaded.CopyToSpeak, "round trip and bounds");
                 loaded.Rate = 0; Check(loaded.Save(path), "atomic replace existing settings");
+                File.WriteAllText(path, "<AppSettings><Voice>Kokoro old voice</Voice><Rate>2</Rate><Volume>63</Volume><CopyToSpeak>false</CopyToSpeak></AppSettings>");
+                loaded = AppSettings.Load(path, out reset);
+                Check(!reset && loaded.Rate == 2 && loaded.Volume == 63 && !loaded.CopyToSpeak, "legacy voice ignored while other preferences survive");
+                Check(loaded.Save(path) && !File.ReadAllText(path).Contains("<Voice>"), "saved settings drop obsolete voice configuration");
                 File.WriteAllText(path, "broken xml");
                 AppSettings.Load(path, out reset); Check(reset, "recover corrupt settings");
                 File.WriteAllText(path, "<!DOCTYPE x [<!ENTITY test SYSTEM 'file:///nonexistent'>]><AppSettings><Voice>&test;</Voice></AppSettings>");
@@ -95,59 +124,19 @@ namespace PointCursor
             {
                 var voices = synth.GetInstalledVoices().Where(v => v.Enabled && v.VoiceInfo.Culture.TwoLetterISOLanguageName == "en").ToArray();
                 Check(voices.Length > 0, "local English voice installed");
-                synth.SelectVoice(voices[0].VoiceInfo.Name); synth.SetOutputToWaveStream(wave); synth.Speak("hello");
+                synth.SelectVoice(SpeechService.VoiceName); synth.SetOutputToWaveStream(wave); synth.Speak("hello");
                 Check(wave.Length > 1000 && System.Text.Encoding.ASCII.GetString(wave.ToArray(), 0, 4) == "RIFF", "local voice generates WAV without web service");
             }
             using (var service = new SpeechService())
-            {
-                string[] kokoro = service.Voices.Where(v => v.StartsWith("Kokoro · ", StringComparison.Ordinal)).ToArray();
-                Check(kokoro.Length == 28, "Kokoro English voices discovered");
-                Check(kokoro.Any(v => v.Contains("af_heart")) && kokoro.Any(v => v.Contains("bm_george")), "Kokoro American and British voices listed");
-                Check(Math.Abs(KokoroSpeechEngine.RateToSpeed(-5) - 0.6) < 0.001 && Math.Abs(KokoroSpeechEngine.RateToSpeed(5) - 1.4) < 0.001, "Kokoro rate mapping bounded");
-                service.Voices.Clear(); Check(!service.Available && !service.Speak("hello", new AppSettings()), "missing English voice handled without playback");
-            }
-        }
-        private static void KokoroBridge()
-        {
-            string runtime = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Kokoro");
-            using (var engine = new KokoroSpeechEngine(runtime))
-            using (var started = new ManualResetEvent(false))
-            {
-                string failure = null;
-                engine.Started += delegate { started.Set(); };
-                engine.Failed += delegate(string message) { failure = message; started.Set(); };
-                var clock = Stopwatch.StartNew(); engine.Prepare("bf_emma");
-                Check(SpinWait.SpinUntil(() => engine.IsReady || failure != null, 15000) && failure == null, "Kokoro preloads and warms silently");
-                Console.WriteLine("Kokoro warm-up ms: " + clock.ElapsedMilliseconds);
-                int workerId = engine.WorkerId;
-                for (int i = 0; i < 15; i++) { engine.Stop(); engine.Prepare("bf_emma"); }
-                clock.Restart();
-                engine.Speak("hello", "af_heart", -1, 85);
-                Check(started.WaitOne(15000) && failure == null, "Kokoro C# bridge generates and starts playback");
-                Console.WriteLine("Kokoro warm hello ms: " + clock.ElapsedMilliseconds);
-                Check(engine.WorkerId == workerId, "mouse resets preserve preloaded model");
-                started.Reset(); failure = null;
-                engine.Speak("English", "bf_emma", 0, 85);
-                Check(started.WaitOne(15000) && failure == null, "Kokoro worker reused for British voice");
-                engine.Stop();
-                string spoken = null; engine.Started += delegate(string word) { spoken = word; };
-                for (int i = 0; i < 10; i++) { engine.Speak("information", "bf_emma", 0, 85); Thread.Sleep(35); engine.Stop(); }
-                started.Reset(); clock.Restart(); engine.Speak("apple", "bf_emma", 0, 85);
-                Check(SpinWait.SpinUntil(() => spoken == "apple" || failure != null, 5000) && failure == null, "rapid changes play newest word");
-                Console.WriteLine("Kokoro newest after cancellation ms: " + clock.ElapsedMilliseconds);
-                Check(engine.WorkerId == workerId, "ordinary cancelled inference retains worker PID");
-                engine.Stop(); spoken = null; Thread.Sleep(800);
-                Check(spoken == null, "stop never publishes stale speech");
-            }
-            Check(!Directory.GetDirectories(Path.GetTempPath(), "PointCursor-Kokoro-" + Process.GetCurrentProcess().Id + "-*").Any(), "Kokoro dispose removes temporary audio directory");
+                Check(service.Available && SpeechService.VoiceName == "Microsoft Zira Desktop", "Zira is the sole voice");
         }
         private static void SapiBridge()
         {
             using (var service = new SpeechService())
             using (var started = new ManualResetEvent(false))
             {
-                string voice = service.Voices.First(v => v.IndexOf("Microsoft Zira Desktop", StringComparison.OrdinalIgnoreCase) >= 0), failure = null, spoken = null;
-                var settings = new AppSettings { Voice = voice, Volume = 85 };
+                string failure = null, spoken = null;
+                var settings = new AppSettings { Volume = 85 };
                 service.Failed += delegate(string error) { failure = error; started.Set(); };
                 service.Started += delegate(long id, string word) { spoken = word; started.Set(); };
                 service.Prepare(settings); Thread.Sleep(200);
@@ -164,35 +153,6 @@ namespace PointCursor
                 service.Stop();
             }
         }
-        private static void KokoroFailures()
-        {
-            string script = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "fault-worker.mjs");
-            string runtime = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Kokoro");
-            try
-            {
-                File.WriteAllText(script, "process.stdout.write('READY\\n'); process.stdin.resume(); setInterval(()=>{},1000);");
-                using (var output = new AudioOutput())
-                using (var engine = new KokoroSpeechEngine(runtime, output, script))
-                {
-                    engine.Prepare("af_heart"); Check(SpinWait.SpinUntil(() => engine.IsReady, 5000), "fault worker starts");
-                    int id = engine.WorkerId;
-                    engine.Speak(output.Stop(), "hello", "af_heart", 0, 85); Thread.Sleep(150);
-                    var clock = Stopwatch.StartNew(); output.Stop(); engine.Stop();
-                    Check(SpinWait.SpinUntil(() => engine.WorkerId == 0, 2500), "stuck cancelled Kokoro worker killed within grace period");
-                    Console.WriteLine("Stale worker termination ms: " + clock.ElapsedMilliseconds);
-                    engine.Prepare("af_heart"); Check(SpinWait.SpinUntil(() => engine.IsReady, 5000) && engine.WorkerId != id, "worker recovers after stuck inference");
-                }
-                File.WriteAllText(script, "process.exit(2);");
-                using (var output = new AudioOutput())
-                using (var engine = new KokoroSpeechEngine(runtime, output, script))
-                {
-                    string error = null; engine.Failed += delegate(string message) { error = message; };
-                    engine.Prepare("af_heart");
-                    Check(SpinWait.SpinUntil(() => error != null, 5000) && !engine.IsReady, "worker early exit reports recoverable failure");
-                }
-            }
-            finally { File.Delete(script); }
-        }
         private static void Pcm()
         {
             var buffer = new PcmPlaybackBuffer(); var source = new byte[] { 1, 0, 2, 0, 255, 127, 0, 128 };
@@ -206,32 +166,6 @@ namespace PointCursor
             Check(!buffer.Set(ticket, source, 100), "stale PCM cannot replace newest audio");
             buffer.Set(latest, source, 100); buffer.Fill(first, 1); buffer.Cancel(); buffer.Fill(rest, 4);
             Check(rest.All(b => b == 0), "cancellation clears remaining audio");
-            Check(RuntimeAssets.Validate(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString()), false) != null, "missing runtime diagnosed");
-        }
-        private static void RuntimeChecks()
-        {
-            string root = Path.Combine(Path.GetTempPath(), "PointCursor-integrity-" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(root);
-            try
-            {
-                var lines = new List<string>();
-                for (int i = 0; i < 20; i++)
-                {
-                    string file = i + ".bin"; var bytes = new byte[] { 1, 2, 3, 4 };
-                    File.WriteAllBytes(Path.Combine(root, file), bytes);
-                    using (var sha = System.Security.Cryptography.SHA256.Create())
-                        lines.Add("4\t" + BitConverter.ToString(sha.ComputeHash(bytes)).Replace("-", "").ToLowerInvariant() + "\t" + file);
-                }
-                File.WriteAllLines(Path.Combine(root, "assets.tsv"), lines);
-                Check(RuntimeAssets.Validate(root, true) == null, "complete runtime hashes validate");
-                File.WriteAllBytes(Path.Combine(root, "0.bin"), new byte[] { 4, 3, 2, 1 });
-                Check(RuntimeAssets.Validate(root, true) != null, "same-length damaged asset detected by full diagnostic");
-                File.WriteAllText(Path.Combine(root, "0.bin"), "version https://git-lfs.github.com/spec/v1\noid sha256:example\nsize 4\n");
-                Check(RuntimeAssets.Validate(root, false) != null, "unhydrated LFS pointer rejected at startup");
-                File.Delete(Path.Combine(root, "0.bin"));
-                Check(RuntimeAssets.Validate(root, false) != null, "missing runtime file detected at startup");
-            }
-            finally { foreach (string file in Directory.GetFiles(root)) File.Delete(file); Directory.Delete(root, false); }
         }
         private static async Task Worker()
         {
@@ -262,12 +196,51 @@ namespace PointCursor
                     Check(cancelled && clock.ElapsedMilliseconds < 1000, "in-flight request cancelled promptly");
                 }
             }
+            using (var client = new SelectionClient(System.Reflection.Assembly.GetExecutingAssembly().Location, "--fault-reader"))
+            {
+                foreach (int fault in new[] { 1, 2, 3 })
+                {
+                    var failed = await client.QueryAsync(new IntPtr(fault), 0, 0, false, CancellationToken.None);
+                    Check(failed.Word == null && failed.Status == (fault == 1 ? "timeout" : "unavailable"), "reader fault bounded: " + fault);
+                    Check((await client.QueryAsync(IntPtr.Zero, 0, 0, false, CancellationToken.None)).Status == "stale", "reader restarts after fault: " + fault);
+                }
+                using (var cancel = new CancellationTokenSource())
+                {
+                    var old = client.QueryAsync(new IntPtr(1), 0, 0, false, cancel.Token);
+                    await Task.Delay(80);
+                    var newest = client.QueryAsync(IntPtr.Zero, 0, 0, false, CancellationToken.None);
+                    var clock = Stopwatch.StartNew(); cancel.Cancel();
+                    try { await old; Check(false, "old reader request must cancel"); } catch (OperationCanceledException) { }
+                    Check((await newest).Status == "stale" && clock.ElapsedMilliseconds < 1000, "new request proceeds promptly after cancelling hung predecessor");
+                }
+                for (int i = 0; i < 100; i++)
+                    if ((await client.QueryAsync(IntPtr.Zero, 0, 0, false, CancellationToken.None)).Status != "stale") throw new Exception("Reader protocol lost synchronization");
+                Check(true, "100 sequential reader requests preserve protocol synchronization");
+            }
+            var closing = new SelectionClient(System.Reflection.Assembly.GetExecutingAssembly().Location, "--fault-reader");
+            var inflight = closing.QueryAsync(new IntPtr(1), 0, 0, false, CancellationToken.None);
+            await Task.Delay(80); closing.Dispose();
+            bool stopped = false;
+            try { await inflight; } catch (OperationCanceledException) { stopped = true; }
+            Check(stopped, "disposing reader cancels inflight request without racing process teardown");
+        }
+        private static int FaultReader()
+        {
+            string line;
+            while ((line = Console.ReadLine()) != null)
+            {
+                string[] fields = line.Split('|');
+                if (fields[1] == "1") Thread.Sleep(10000);
+                if (fields[1] == "3") return 2;
+                Console.WriteLine(fields[0] + (fields[1] == "2" ? "|word|%" : "|stale|"));
+            }
+            return 0;
         }
         private static void Render(string path)
         {
             Application.EnableVisualStyles();
             using (var service = new SpeechService())
-            using (var form = new SettingsForm(new AppSettings { Voice = service.Voices.First(v => v.StartsWith("Kokoro · ", StringComparison.Ordinal)) }, service.Voices))
+            using (var form = new SettingsForm(new AppSettings(), service.Available))
             {
                 form.UpdateStatus("准备好了，选中一个英文单词试试。", false);
                 form.StartPosition = FormStartPosition.Manual; form.Location = new Point(-10000, -10000);
