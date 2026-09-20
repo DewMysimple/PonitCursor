@@ -16,6 +16,11 @@ namespace PointCursor
         [DllImport("user32.dll")] public static extern IntPtr CallNextHookEx(IntPtr hook, int code, IntPtr message, IntPtr data);
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr GetModuleHandle(string name);
         [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+        [DllImport("user32.dll")] public static extern bool AllowSetForegroundWindow(uint processId);
+        [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr window);
+        [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr window, int command);
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr FindWindowEx(IntPtr parent, IntPtr after, string className, string caption);
+        [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)] public static extern bool SetWindowText(IntPtr window, string text);
         [DllImport("user32.dll")] public static extern IntPtr WindowFromPoint(Point point);
         [DllImport("user32.dll")] public static extern IntPtr GetAncestor(IntPtr window, uint flags);
         [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr window, out uint process);
@@ -37,6 +42,7 @@ namespace PointCursor
         [DllImport("kernel32.dll")] public static extern ulong GetTickCount64();
         [DllImport("user32.dll")] public static extern bool DestroyIcon(IntPtr icon);
         [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr window, int message, IntPtr wparam, IntPtr lparam);
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr SendMessageTimeout(IntPtr window, int message, IntPtr wparam, IntPtr lparam, uint flags, uint timeout, out UIntPtr result);
         [DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();
         [DllImport("user32.dll")] public static extern bool PostThreadMessage(uint thread, uint message, UIntPtr wparam, IntPtr lparam);
         [DllImport("user32.dll")] public static extern int GetMessage(out Message message, IntPtr window, uint min, uint max);

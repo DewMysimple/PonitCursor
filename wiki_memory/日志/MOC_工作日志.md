@@ -15,6 +15,7 @@ supersedes: null
 
 | 时间 | 类型 | 目标 | 状态 | 主题 | 日志 |
 | --- | --- | --- | --- | --- | --- |
+| 2026-09-20 | maintenance | - | archived | single-instance-activation | [[日志/2026-09-20-重复启动直接唤醒设置窗口.md|重复启动直接唤醒设置窗口]] |
 | 2026-09-20 | maintenance | - | archived | zira-cleanup-selection-stability | [[日志/2026-09-20-收敛Zira语音并修复输入与取词稳定性.md|收敛 Zira 语音并修复输入与取词稳定性]] |
 | 2026-09-11 | bug | 解决完成划词后立即切换窗口或点击别处导致 Microsoft Zira Desktop 无反应的问题，并把后续便携包统一命名为 `PointCursor.zip`，解压后直接得到 `PointCursor` 软件目录。 | archived | lock-selection-gesture-and-rename-package | [[日志/2026-09-11-锁定划词手势与统一发布包名称.md|2026-09-11｜锁定划词手势与统一发布包名称]] |
 | 2026-09-11 | bug | 只以 Microsoft Zira Desktop 作为本轮验收语音，提高划词成功率，防止普通光标／窗口／输入变化撤销请求或截断读音，允许同一单词重复 Ctrl+C 发音，并降低鼠标松开到开始取词的等待。 | archived | improve-zira-selection-reliability-and-latency | [[日志/2026-09-11-提升Zira划词稳定性与响应速度.md|2026-09-11｜提升 Zira 划词稳定性与响应速度]] |

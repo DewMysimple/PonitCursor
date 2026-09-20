@@ -10,17 +10,55 @@ namespace PointCursor
 {
     internal sealed class MessageWindow : NativeWindow, IDisposable
     {
+        private const int ActivateMessage = 0x8003;
         public event Action ClipboardChanged;
         public event Action InputReady;
+        public event Func<IntPtr> ActivateRequested;
         public MessageWindow()
         {
             CreateHandle(new CreateParams { Caption = "PointCursor message receiver", Parent = new IntPtr(-3) });
             if (!Native.AddClipboardFormatListener(Handle)) { DestroyHandle(); throw new System.ComponentModel.Win32Exception(); }
         }
+        public void EnableActivation(string instanceName)
+        {
+            // Publish only after TrayApp is ready to handle ShowSettings.
+            if (!Native.SetWindowText(Handle, instanceName)) throw new System.ComponentModel.Win32Exception();
+        }
+        public static bool ActivateExisting(string instanceName)
+        {
+            // The first process can still be constructing its tray and speech service.
+            // Search only message windows belonging to this user's product/QA instance.
+            for (int attempt = 0; attempt < 60; attempt++)
+            {
+                IntPtr receiver = Native.FindWindowEx(new IntPtr(-3), IntPtr.Zero, null, instanceName);
+                if (receiver != IntPtr.Zero)
+                {
+                    uint pid = Native.ProcessOf(receiver);
+                    if (pid != 0)
+                    {
+                        Native.AllowSetForegroundWindow(pid);
+                        UIntPtr result;
+                        // Ask the resident to restore its UI, then use the launcher's
+                        // foreground permission. A hung resident must not block launch.
+                        if (Native.SendMessageTimeout(receiver, ActivateMessage, IntPtr.Zero, IntPtr.Zero, 0x0002, 1000, out result) == IntPtr.Zero) return false;
+                        IntPtr settingsWindow = new IntPtr(unchecked((long)result.ToUInt64()));
+                        if (Native.ProcessOf(settingsWindow) == pid) Native.SetForegroundWindow(settingsWindow);
+                        return true;
+                    }
+                }
+                Thread.Sleep(50);
+            }
+            return false;
+        }
         protected override void WndProc(ref Message message)
         {
             if (message.Msg == 0x31D && ClipboardChanged != null) ClipboardChanged();
             if (message.Msg == InputMonitor.NoticeMessage && InputReady != null) InputReady();
+            if (message.Msg == ActivateMessage && ActivateRequested != null)
+            {
+                message.Result = ActivateRequested();
+                return;
+            }
             base.WndProc(ref message);
         }
         public void Dispose() { Native.RemoveClipboardFormatListener(Handle); DestroyHandle(); }
@@ -54,7 +92,7 @@ namespace PointCursor
         private int qaPronunciations;
 #endif
         private readonly uint processId = (uint)Process.GetCurrentProcess().Id;
-        public TrayApp(bool quiet)
+        public TrayApp(bool quiet, string instanceName)
         {
             bool reset;
             settings = AppSettings.Load(settingsPath, out reset);
@@ -88,6 +126,8 @@ namespace PointCursor
             speech.Prepare(settings);
             if (speech.Error != null) SetStatus(speech.Error);
             else if (reset) SetStatus("设置文件无法读取，已使用默认设置。");
+            messages.ActivateRequested += ShowSettings;
+            messages.EnableActivation(instanceName);
             if (!quiet) ShowSettings();
         }
         private bool Eligible(IntPtr window) { return window != IntPtr.Zero && Native.ProcessOf(window) != processId; }
@@ -203,8 +243,9 @@ namespace PointCursor
             tray.Text = paused ? "PointCursor · 已暂停" : "PointCursor · 划词发音已开启";
             SetStatus(paused ? "已暂停，选词和复制都不会自动发音。" : "准备好了，选中一个英文单词试试。");
         }
-        private void ShowSettings()
+        private IntPtr ShowSettings()
         {
+            if (exiting) return IntPtr.Zero;
             if (form == null || form.IsDisposed)
             {
                 form = new SettingsForm(settings, speech.Available);
@@ -213,7 +254,14 @@ namespace PointCursor
                 form.PreviewRequested += delegate { Preview(); };
                 form.ExitRequested += delegate { ExitThread(); };
             }
-            form.UpdateStatus(status, paused); form.Show(); form.Activate();
+            form.UpdateStatus(status, paused);
+            form.Show();
+            if (form.WindowState == FormWindowState.Minimized) form.WindowState = FormWindowState.Normal;
+            // A --quiet process may have inherited a hidden startup window style.
+            Native.ShowWindow(form.Handle, 9); // SW_RESTORE
+            Native.SetForegroundWindow(form.Handle);
+            form.Activate();
+            return form.Handle;
         }
         protected override void ExitThreadCore()
         {
@@ -232,19 +280,28 @@ namespace PointCursor
         public static void Main(string[] args)
         {
             Application.EnableVisualStyles(); Application.SetCompatibleTextRenderingDefault(false);
-            bool owned;
 #if POINTCURSOR_QA
             string instanceName = "Local\\PointCursor-QA-" + System.Security.Principal.WindowsIdentity.GetCurrent().User.Value;
 #else
             string instanceName = "Local\\PointCursor-" + System.Security.Principal.WindowsIdentity.GetCurrent().User.Value;
 #endif
-            using (var instance = new Mutex(true, instanceName, out owned))
+            using (var instance = new Mutex(false, instanceName))
             {
-                if (!owned) { MessageBox.Show("PointCursor 已在运行。请在任务栏右下角（含隐藏图标）双击它的图标打开设置。", "PointCursor", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
-                try { Application.Run(new TrayApp(Array.IndexOf(args, "--quiet") >= 0)); }
+                if (!AcquireInstance(instance))
+                {
+                    if (MessageWindow.ActivateExisting(instanceName)) return;
+                    // Recover if the previous process exited during the bounded wait.
+                    if (!AcquireInstance(instance)) return;
+                }
+                try { Application.Run(new TrayApp(Array.IndexOf(args, "--quiet") >= 0, instanceName)); }
                 catch (Exception) { MessageBox.Show("PointCursor 无法启动。请确认程序文件完整，并检查系统语音和桌面会话后重试。", "PointCursor", MessageBoxButtons.OK, MessageBoxIcon.Error); }
                 finally { instance.ReleaseMutex(); }
             }
+        }
+        private static bool AcquireInstance(Mutex instance)
+        {
+            try { return instance.WaitOne(0); }
+            catch (AbandonedMutexException) { return true; }
         }
     }
 }

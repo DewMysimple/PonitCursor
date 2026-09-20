@@ -7,9 +7,12 @@
 ```powershell
 python .\tests\desktop_qa.py --stress 100
 python .\tests\browser_qa.py
+python .\tests\single_instance_qa.py
 ```
 
 桌面脚本使用独立 RichTextBox / 密码框测试窗口，并验证划词完成后的普通输入、立即切换窗口和立即点击别处都不会撤销请求。默认不操作剪贴板；显式传入 `--copy` 后还需通过完整快照检查，否则跳过。新增回归覆盖第二次点击长按、两次 1.5 秒 UI 卡顿后钩子继续工作，以及连续交替双击。浏览器脚本需要 Chrome（默认常见安装路径）和 Node.js 22+，只打开项目中的本地 HTML，并使用独立浏览器配置。它不操作日常使用的浏览器窗口。
+
+单实例脚本约 5 秒：由前台 Fixture 启动第二个 QA 进程，模拟从资源管理器启动程序的前台权限，检查静默驻留唤出、隐藏恢复、最小化恢复、遮挡后聚焦、连续启动、正常退出与两个进程同时冷启动。它临时切换焦点，不移动鼠标、不读写剪贴板；先清除合成 Alt 激活留下的菜单状态，避免 Windows 因活动菜单拒绝焦点交接。结果在 `build/qa/single-instance-results.json`，只终止本轮创建的测试进程。WinForms 隐藏/显示时可能重建 HWND，因此不要求隐藏前后句柄保持不变。
 
 Obsidian 测试需要 Python、Node.js 22+ 和本机 Obsidian，先启动独立测试库：
 

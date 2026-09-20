@@ -4,11 +4,27 @@ using System.Windows.Forms;
 
 internal static class Fixture
 {
+    private sealed class LauncherForm : Form
+    {
+        protected override void WndProc(ref Message message)
+        {
+            if (message.Msg == 0x8004)
+            {
+                // Model Explorer launching the application from the foreground.
+                using (var process = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo {
+                    FileName = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "PointCursor.exe"),
+                    UseShellExecute = false, CreateNoWindow = true
+                })) message.Result = new IntPtr(process.Id);
+                return;
+            }
+            base.WndProc(ref message);
+        }
+    }
     [STAThread]
     public static void Main()
     {
         Application.EnableVisualStyles();
-        var window = new Form { Text = "PointCursor QA fixture", ClientSize = new Size(640, 340), StartPosition = FormStartPosition.Manual, Location = new Point(80, 80) };
+        var window = new LauncherForm { Text = "PointCursor QA fixture", ClientSize = new Size(640, 340), StartPosition = FormStartPosition.Manual, Location = new Point(80, 80) };
         window.Controls.Add(new Label { Text = "Synthetic text for selection / clipboard / password tests", AutoSize = true, Location = new Point(20, 15) });
         var text = new RichTextBox { Text = "hello world\nwell-known don't\nhello world 123 https://example.com", ReadOnly = true, Font = new Font("Consolas", 20), Location = new Point(20, 48), Size = new Size(600, 175), DetectUrls = false, HideSelection = false };
         window.Controls.Add(text);
