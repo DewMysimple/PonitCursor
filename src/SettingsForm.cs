@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Windows.Forms;
@@ -33,7 +34,7 @@ namespace PointCursor
         public bool AllowClose { get; set; }
         private readonly Label status, state;
         private readonly Button toggle;
-        public SettingsForm(AppSettings settings, bool voiceAvailable)
+        public SettingsForm(AppSettings settings, IList<SpeechVoice> voices)
         {
             Text = "PointCursor · 划词发音";
             Icon = Brand.CreateIcon();
@@ -71,7 +72,18 @@ namespace PointCursor
             options.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 64)); options.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             options.RowStyles.Add(new RowStyle(SizeType.Absolute, 48)); options.RowStyles.Add(new RowStyle(SizeType.Absolute, 62)); options.RowStyles.Add(new RowStyle(SizeType.Absolute, 62)); options.RowStyles.Add(new RowStyle(SizeType.Absolute, 44)); options.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             options.Controls.Add(Caption("语音"), 0, 0);
-            var voice = new Label { Text = SpeechService.VoiceName + (voiceAvailable ? "" : "（未安装）"), Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, AccessibleName = "英文语音", AutoEllipsis = true };
+            var voice = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Fill,
+                AccessibleName = "英文语音", Margin = new Padding(0, 8, 0, 0), DropDownWidth = 430, Enabled = voices.Count > 0 };
+            foreach (SpeechVoice installed in voices)
+            {
+                voice.Items.Add(installed);
+                if (installed.Name == settings.Voice) voice.SelectedItem = installed;
+            }
+            if (voices.Count == 0) { voice.Items.Add("未安装美式或英式语音"); voice.SelectedIndex = 0; }
+            voice.SelectedIndexChanged += delegate {
+                var selected = voice.SelectedItem as SpeechVoice;
+                if (selected != null && settings.Voice != selected.Name) { settings.Voice = selected.Name; Changed(); }
+            };
             options.Controls.Add(voice, 1, 0);
             options.Controls.Add(Caption("语速"), 0, 1);
             options.Controls.Add(Slider(-5, 5, settings.Rate, "英文语速", delegate(int value) { settings.Rate = value; Changed(); }, delegate(int value) { return value == 0 ? "标准" : (value < 0 ? "较慢  " : "较快  +") + value; }), 1, 1);
@@ -91,7 +103,7 @@ namespace PointCursor
 
             var actions = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, Margin = Padding.Empty };
             actions.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 138)); actions.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); actions.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 116));
-            var preview = Button("试听 hello", true); preview.Dock = DockStyle.Fill; preview.Enabled = voiceAvailable; preview.Margin = Padding.Empty;
+            var preview = Button("试听 hello", true); preview.Dock = DockStyle.Fill; preview.Enabled = voices.Count > 0; preview.Margin = Padding.Empty;
             preview.Click += delegate { if (PreviewRequested != null) PreviewRequested(); };
             var exit = Button("退出程序", false); exit.Dock = DockStyle.Fill; exit.Margin = Padding.Empty;
             exit.Click += delegate { if (ExitRequested != null) ExitRequested(); };

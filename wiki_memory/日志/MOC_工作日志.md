@@ -3,7 +3,7 @@ type: moc
 status: active
 kind: process
 importance: high
-updated: 2026-09-20
+updated: 2026-09-23
 topic: work-log-index
 source_logs: []
 supersedes: null
@@ -15,6 +15,7 @@ supersedes: null
 
 | 时间 | 类型 | 目标 | 状态 | 主题 | 日志 |
 | --- | --- | --- | --- | --- | --- |
+| 2026-09-23 | feature | - | archived | english-system-voice-selection-delivery | [[日志/2026-09-23-添加美式与英式系统语音选择.md|添加美式与英式系统语音选择]] |
 | 2026-09-20 | maintenance | - | archived | single-instance-activation | [[日志/2026-09-20-重复启动直接唤醒设置窗口.md|重复启动直接唤醒设置窗口]] |
 | 2026-09-20 | maintenance | - | archived | zira-cleanup-selection-stability | [[日志/2026-09-20-收敛Zira语音并修复输入与取词稳定性.md|收敛 Zira 语音并修复输入与取词稳定性]] |
 | 2026-09-11 | bug | 解决完成划词后立即切换窗口或点击别处导致 Microsoft Zira Desktop 无反应的问题，并把后续便携包统一命名为 `PointCursor.zip`，解压后直接得到 `PointCursor` 软件目录。 | archived | lock-selection-gesture-and-rename-package | [[日志/2026-09-11-锁定划词手势与统一发布包名称.md|2026-09-11｜锁定划词手势与统一发布包名称]] |

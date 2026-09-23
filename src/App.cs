@@ -96,7 +96,7 @@ namespace PointCursor
         {
             bool reset;
             settings = AppSettings.Load(settingsPath, out reset);
-            speech = new SpeechService();
+            speech = new SpeechService(settings);
             reader = new SelectionClient(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "PointCursor.Reader.exe"));
             messages = new MessageWindow();
             // Ensure async continuations run on the WinForms message thread, including --quiet startup.
@@ -248,7 +248,7 @@ namespace PointCursor
             if (exiting) return IntPtr.Zero;
             if (form == null || form.IsDisposed)
             {
-                form = new SettingsForm(settings, speech.Available);
+                form = new SettingsForm(settings, speech.Voices);
                 form.SettingsChanged += delegate { Invalidate(true); if (!paused) speech.Prepare(settings); if (!settings.Save(settingsPath)) SetStatus("设置无法保存，本次运行仍然有效。"); };
                 form.ToggleRequested += delegate { SetPaused(!paused); };
                 form.PreviewRequested += delegate { Preview(); };

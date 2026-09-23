@@ -31,7 +31,7 @@ $native = Join-Path $root 'src\Native.cs'
 $uia = @(('/r:' + (Join-Path $framework 'WPF\UIAutomationClient.dll')), ('/r:' + (Join-Path $framework 'WPF\UIAutomationTypes.dll')), ('/r:' + (Join-Path $framework 'WPF\WindowsBase.dll')))
 Compile (@('/target:exe',('/out:' + (Join-Path $out 'PointCursor.Reader.exe')),('/win32manifest:' + (Join-Path $root 'app.manifest')),('/r:' + $core),('/r:' + (Join-Path $framework 'Accessibility.dll')),$native,(Join-Path $root 'src\SelectionReader.cs'),(Join-Path $root 'src\LegacySelection.cs')) + $uia)
 $desktop = @(('/r:' + (Join-Path $framework 'System.Windows.Forms.dll')), ('/r:' + (Join-Path $framework 'System.Drawing.dll')), ('/r:' + $speech))
-$audio = @('PcmAudio.cs','AudioOutput.cs','SapiSpeechEngine.cs') | ForEach-Object { Join-Path $root ('src\' + $_) }
+$audio = @('PcmAudio.cs','AudioOutput.cs','SapiSpeechEngine.cs','VoiceCatalog.cs') | ForEach-Object { Join-Path $root ('src\' + $_) }
 $app = @('Native.cs','SelectionClient.cs','InputMonitor.cs','SpeechService.cs','SettingsForm.cs','App.cs') | ForEach-Object { Join-Path $root ('src\' + $_) }
 $app += $audio
 Compile (@('/target:winexe',('/out:' + (Join-Path $out 'PointCursor.exe')),('/win32manifest:' + (Join-Path $root 'app.manifest')),('/r:' + $core)) + $desktop + $app)

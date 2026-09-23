@@ -8,7 +8,7 @@ namespace PointCursor
 {
     internal sealed class SapiSpeechEngine : IDisposable
     {
-        private sealed class Request { public long Ticket; public string Word; public int Rate, Volume; public bool Warm; }
+        private sealed class Request { public long Ticket; public string Word, Voice; public int Rate, Volume; public bool Warm; }
         private readonly object sync = new object();
         private readonly AutoResetEvent changed = new AutoResetEvent(false);
         private readonly AudioOutput output;
@@ -17,12 +17,12 @@ namespace PointCursor
         private volatile bool disposed;
         public event Action<string> Failed;
         public SapiSpeechEngine(AudioOutput output) { this.output = output; }
-        public void Speak(long ticket, string word, int rate, int volume, bool warm)
+        public void Speak(long ticket, string word, string voice, int rate, int volume, bool warm)
         {
             lock (sync)
             {
                 if (disposed) return;
-                pending = new Request { Ticket = ticket, Word = word, Rate = rate, Volume = volume, Warm = warm };
+                pending = new Request { Ticket = ticket, Word = word, Voice = voice, Rate = rate, Volume = volume, Warm = warm };
                 if (thread == null) { thread = new Thread(Pump) { IsBackground = true, Name = "PointCursor SAPI" }; thread.SetApartmentState(ApartmentState.MTA); thread.Start(); }
                 changed.Set();
             }
@@ -39,7 +39,9 @@ namespace PointCursor
                     if (request == null) { changed.WaitOne(250); continue; }
                     try
                     {
-                        if (synth == null) { synth = new SpeechSynthesizer(); synth.SelectVoice(SpeechService.VoiceName); }
+                        if (synth == null) synth = new SpeechSynthesizer();
+                        if (synth.Voice.Name != request.Voice) synth.SelectVoice(request.Voice);
+                        if (synth.Voice.Name != request.Voice) throw new InvalidOperationException("SAPI selected a different voice.");
                         using (var stream = new MemoryStream())
                         using (var done = new ManualResetEvent(false))
                         {
@@ -72,7 +74,7 @@ namespace PointCursor
                     catch (Exception)
                     {
                         if (synth != null) { synth.Dispose(); synth = null; }
-                        if (!disposed && request.Ticket == output.Generation && Failed != null) Failed("Zira 语音合成失败，请检查 Microsoft Zira Desktop 语音包。");
+                        if (!disposed && request.Ticket == output.Generation && Failed != null) Failed("语音合成失败，请检查系统语音包：" + request.Voice);
                     }
                 }
             }

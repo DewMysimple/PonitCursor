@@ -24,6 +24,9 @@ namespace PointCursor
                 if (args.Length > 0 && args[0] == "--hang") { Console.ReadLine(); Thread.Sleep(10000); return 0; }
                 if (args.Length > 0 && args[0] == "--fault-reader") return FaultReader();
                 Rules(); Gates(); Gestures(); Settings(); Pcm(); Audio(); SapiBridge(); Worker().GetAwaiter().GetResult();
+                // Form creation installs a UI synchronization context; run it after
+                // worker tests which synchronously wait for asynchronous continuations.
+                Voices();
                 if (args.Length > 0 && args[0] == "--render") Render(args[1]);
                 Console.WriteLine("TOTAL: " + passed + " passed"); return 0;
             }
@@ -101,15 +104,22 @@ namespace PointCursor
                 bool reset;
                 var defaults = AppSettings.Load(path, out reset);
                 Check(!reset && defaults.CopyToSpeak && defaults.Volume == 85 && defaults.Rate == -1, "first-run defaults");
-                defaults.Rate = 100; defaults.Volume = -20; defaults.CopyToSpeak = false;
+                defaults.Rate = 100; defaults.Volume = -20; defaults.CopyToSpeak = false; defaults.Voice = "British test voice";
                 Check(defaults.Save(path), "save settings");
                 var loaded = AppSettings.Load(path, out reset);
-                Check(!reset && loaded.Rate == 5 && loaded.Volume == 0 && !loaded.CopyToSpeak, "round trip and bounds");
+                Check(!reset && loaded.Rate == 5 && loaded.Volume == 0 && !loaded.CopyToSpeak && loaded.Voice == defaults.Voice, "voice preferences round trip and bounds");
                 loaded.Rate = 0; Check(loaded.Save(path), "atomic replace existing settings");
                 File.WriteAllText(path, "<AppSettings><Voice>Kokoro old voice</Voice><Rate>2</Rate><Volume>63</Volume><CopyToSpeak>false</CopyToSpeak></AppSettings>");
                 loaded = AppSettings.Load(path, out reset);
-                Check(!reset && loaded.Rate == 2 && loaded.Volume == 63 && !loaded.CopyToSpeak, "legacy voice ignored while other preferences survive");
-                Check(loaded.Save(path) && !File.ReadAllText(path).Contains("<Voice>"), "saved settings drop obsolete voice configuration");
+                using (var service = new SpeechService(loaded))
+                    Check(!reset && loaded.Rate == 2 && loaded.Volume == 63 && !loaded.CopyToSpeak && service.Voices.Any(v => v.Name == loaded.Voice),
+                        "unsupported legacy voice resolves to an installed English voice while other preferences survive");
+                Check(loaded.Save(path) && AppSettings.Load(path, out reset).Voice == loaded.Voice, "resolved voice persists");
+                File.WriteAllText(path, "<AppSettings><Rate>1</Rate><Volume>72</Volume></AppSettings>");
+                loaded = AppSettings.Load(path, out reset);
+                Check(!reset && loaded.Voice == AppSettings.DefaultVoice && loaded.Rate == 1 && loaded.Volume == 72, "Zira-only settings retain defaults and preferences");
+                loaded.Voice = new string('x', 257); loaded.Validate();
+                Check(loaded.Voice == AppSettings.DefaultVoice, "overlong voice setting rejected");
                 File.WriteAllText(path, "broken xml");
                 AppSettings.Load(path, out reset); Check(reset, "recover corrupt settings");
                 File.WriteAllText(path, "<!DOCTYPE x [<!ENTITY test SYSTEM 'file:///nonexistent'>]><AppSettings><Voice>&test;</Voice></AppSettings>");
@@ -117,26 +127,60 @@ namespace PointCursor
             }
             finally { if (File.Exists(path)) File.Delete(path); Directory.Delete(folder); }
         }
+        private static void Voices()
+        {
+            var british = new SpeechVoice("British test voice", "en-GB", true);
+            var zira = new SpeechVoice(AppSettings.DefaultVoice, "en-US", true);
+            var catalog = new VoiceCatalog(new[] { british, zira,
+                new SpeechVoice("Chinese", "zh-CN", true), new SpeechVoice("Australian", "en-AU", true),
+                new SpeechVoice("Canadian", "en-CA", true), new SpeechVoice("Indian", "en-IN", true),
+                new SpeechVoice("Unspecified English", "en", true), new SpeechVoice("Disabled US", "en-US", false) });
+            Check(catalog.Voices.Count == 2 && catalog.Voices.Contains(british) && catalog.Voices.Contains(zira), "only enabled US and GB voices are offered");
+            Check(catalog.Resolve(british.Name) == british, "saved British selection retained");
+            Check(catalog.Resolve("removed voice") == zira, "missing voice prefers Zira");
+            Check(new VoiceCatalog(new[] { british }).Resolve(AppSettings.DefaultVoice) == british, "British-only installation works without Zira");
+            Check(new VoiceCatalog(new SpeechVoice[0]).Resolve(null) == null, "empty catalogue has no implicit voice");
+            var settings = new AppSettings();
+            using (var form = new SettingsForm(settings, catalog.Voices))
+            {
+                var combo = Descendants(form).OfType<ComboBox>().Single();
+                int changes = 0; form.SettingsChanged += delegate { changes++; };
+                Check(((SpeechVoice)combo.SelectedItem).Name == AppSettings.DefaultVoice && combo.Items.Count == 2, "settings show selected voice and allowed choices");
+                combo.SelectedItem = british;
+                Check(settings.Voice == british.Name && changes == 1, "voice switch updates settings once");
+            }
+            using (var form = new SettingsForm(new AppSettings(), new SpeechVoice[0]))
+            {
+                Check(!Descendants(form).OfType<ComboBox>().Single().Enabled
+                    && !Descendants(form).OfType<Button>().Single(b => b.Text == "试听 hello").Enabled, "missing voices disable choice and preview");
+            }
+        }
+        private static IEnumerable<Control> Descendants(Control parent)
+        {
+            foreach (Control control in parent.Controls)
+            { yield return control; foreach (Control child in Descendants(control)) yield return child; }
+        }
         private static void Audio()
         {
+            var settings = new AppSettings();
+            using (var service = new SpeechService(settings))
             using (var synth = new SpeechSynthesizer())
             using (var wave = new MemoryStream())
             {
-                var voices = synth.GetInstalledVoices().Where(v => v.Enabled && v.VoiceInfo.Culture.TwoLetterISOLanguageName == "en").ToArray();
-                Check(voices.Length > 0, "local English voice installed");
-                synth.SelectVoice(SpeechService.VoiceName); synth.SetOutputToWaveStream(wave); synth.Speak("hello");
+                Check(service.Available, "local US or British English voice installed");
+                synth.SelectVoice(settings.Voice); synth.SetOutputToWaveStream(wave); synth.Speak("hello");
                 Check(wave.Length > 1000 && System.Text.Encoding.ASCII.GetString(wave.ToArray(), 0, 4) == "RIFF", "local voice generates WAV without web service");
             }
-            using (var service = new SpeechService())
-                Check(service.Available && SpeechService.VoiceName == "Microsoft Zira Desktop", "Zira is the sole voice");
+            using (var service = new SpeechService(new AppSettings()))
+                Check(service.Available && service.Voices.All(v => v.Culture == "en-US" || v.Culture == "en-GB"), "installed catalogue contains only requested accents");
         }
         private static void SapiBridge()
         {
-            using (var service = new SpeechService())
+            var settings = new AppSettings { Volume = 85 };
+            using (var service = new SpeechService(settings))
             using (var started = new ManualResetEvent(false))
             {
                 string failure = null, spoken = null;
-                var settings = new AppSettings { Volume = 85 };
                 service.Failed += delegate(string error) { failure = error; started.Set(); };
                 service.Started += delegate(long id, string word) { spoken = word; started.Set(); };
                 service.Prepare(settings); Thread.Sleep(200);
@@ -145,11 +189,23 @@ namespace PointCursor
                 Console.WriteLine("SAPI warm English ms: " + clock.ElapsedMilliseconds);
                 started.Reset(); spoken = null;
                 service.Speak("English", settings);
-                Check(started.WaitOne(5000) && failure == null && spoken == "English", "Zira repeats the same word on a new request");
+                Check(started.WaitOne(5000) && failure == null && spoken == "English", "selected voice repeats the same word on a new request");
                 service.Suspend(); started.Reset(); spoken = null; Thread.Sleep(150);
                 Check(!started.WaitOne(100), "pause cancels playback");
                 service.Prepare(settings); service.Speak("apple", settings);
                 Check(started.WaitOne(5000) && failure == null && spoken == "apple", "resume reopens shared device from sample zero");
+                foreach (SpeechVoice voice in service.Voices)
+                {
+                    settings.Voice = voice.Name; started.Reset(); spoken = null;
+                    service.Prepare(settings); service.Speak("hello", settings);
+                    Check(started.WaitOne(5000) && failure == null && spoken == "hello", "voice switch renders through shared output: " + voice);
+                }
+                started.Reset(); spoken = null;
+                service.Speak("snapshot", settings);
+                settings.Voice = "unavailable voice after submission";
+                Check(started.WaitOne(5000) && failure == null && spoken == "snapshot", "queued request retains its selected voice snapshot");
+                started.Reset(); settings.Voice = "Microsoft Huihui Desktop";
+                Check(!service.Speak("hello", settings) && failure != null, "unsupported voice cannot bypass catalogue through settings");
                 service.Stop();
             }
         }
@@ -239,8 +295,9 @@ namespace PointCursor
         private static void Render(string path)
         {
             Application.EnableVisualStyles();
-            using (var service = new SpeechService())
-            using (var form = new SettingsForm(new AppSettings(), service.Available))
+            var settings = new AppSettings();
+            using (var service = new SpeechService(settings))
+            using (var form = new SettingsForm(settings, service.Voices))
             {
                 form.UpdateStatus("准备好了，选中一个英文单词试试。", false);
                 form.StartPosition = FormStartPosition.Manual; form.Location = new Point(-10000, -10000);

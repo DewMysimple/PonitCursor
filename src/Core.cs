@@ -91,12 +91,15 @@ namespace PointCursor
 
     public sealed class AppSettings
     {
+        public const string DefaultVoice = "Microsoft Zira Desktop";
+        public string Voice = DefaultVoice;
         public bool CopyToSpeak = true;
         public int Rate = -1;
         public int Volume = 85;
         public static string FilePath { get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PointCursor", "settings.xml"); } }
         public void Validate()
         {
+            if (String.IsNullOrWhiteSpace(Voice) || Voice.Length > 256) Voice = DefaultVoice;
             Rate = Math.Max(-5, Math.Min(5, Rate));
             Volume = Math.Max(0, Math.Min(100, Volume));
         }
