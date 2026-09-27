@@ -4,8 +4,6 @@ from ctypes import wintypes as W
 import json
 import desktop_qa as q
 
-q.u.FindWindowExW.argtypes = [W.HWND, W.HWND, W.LPCWSTR, W.LPCWSTR]
-q.u.FindWindowExW.restype = W.HWND
 q.u.IsIconic.argtypes = [W.HWND]
 q.k.OpenProcess.argtypes = [W.DWORD, W.BOOL, W.DWORD]
 q.k.OpenProcess.restype = W.HANDLE
@@ -15,16 +13,7 @@ q.k.TerminateProcess.argtypes = [W.HANDLE, W.UINT]
 q.k.CloseHandle.argtypes = [W.HANDLE]
 
 
-def receiver_for(pid):
-    hwnd = None
-    while True:
-        hwnd = q.u.FindWindowExW(W.HWND(-3), hwnd, None, None)
-        if not hwnd:
-            return None
-        owner = W.DWORD()
-        q.u.GetWindowThreadProcessId(hwnd, C.byref(owner))
-        if owner.value == pid and q.text(hwnd).startswith("Local\\PointCursor-QA-"):
-            return hwnd
+receiver_for = q.receiver_for
 
 
 def main():

@@ -15,6 +15,10 @@ namespace PointCursor
         private volatile bool disposed, suspended;
         private string word;
         private long ticket;
+#if POINTCURSOR_QA
+        private volatile bool stallForTest;
+        public void StallForTest() { stallForTest = true; changed.Set(); }
+#endif
         public event Action<long, string> Started;
         public event Action<string> Failed;
         public long Generation { get { return buffer.Generation; } }
@@ -51,6 +55,7 @@ namespace PointCursor
                 AudioInterop.IMMDevice device = null;
                 AudioInterop.IAudioClient client = null;
                 AudioInterop.IAudioRenderClient render = null;
+                AudioInterop.IAudioClock clock = null;
                 using (var ready = new AutoResetEvent(false))
                 {
                     try
@@ -66,14 +71,40 @@ namespace PointCursor
                         uint capacity; AudioInterop.Check(client.GetBufferSize(out capacity));
                         Guid renderId = typeof(AudioInterop.IAudioRenderClient).GUID;
                         AudioInterop.Check(client.GetService(ref renderId, out value)); render = (AudioInterop.IAudioRenderClient)value;
+                        Guid clockId = typeof(AudioInterop.IAudioClock).GUID;
+                        AudioInterop.Check(client.GetService(ref clockId, out value)); clock = (AudioInterop.IAudioClock)value;
+                        ulong frequency; AudioInterop.Check(clock.GetFrequency(out frequency));
                         var data = new byte[capacity * 2];
                         // A guard only when opening/reopening a device; normal words add no delay.
                         buffer.DeviceOpened(PcmAudio.SampleRate * 150 / 1000);
                         AudioInterop.Check(client.Start()); IsReady = true;
-                        long lastDeviceCheck = Native.Now;
+                        long lastDeviceCheck = 0, lastProgress = Native.Now, deviceTicket = -1, completionTicket = -1;
+                        ulong position = 0, submitted = 0, completionFrame = 0;
+                        var signals = new WaitHandle[] { ready, changed };
                         while (!disposed && !suspended)
                         {
-                            WaitHandle.WaitAny(new WaitHandle[] { ready, changed }, 100);
+                            WaitHandle.WaitAny(signals, 100);
+#if POINTCURSOR_QA
+                            if (stallForTest) { stallForTest = false; AudioInterop.Check(client.Stop()); }
+#endif
+                            // Check before submitting a new word, even if the previous
+                            // periodic endpoint check was less than one second ago.
+                            if (deviceTicket != Generation || Native.Now - lastDeviceCheck > 1000)
+                            {
+                                lastDeviceCheck = Native.Now; deviceTicket = Generation;
+                                AudioInterop.IMMDevice next = null;
+                                try
+                                {
+                                    AudioInterop.Check(enumerator.GetDefaultAudioEndpoint(0, 1, out next));
+                                    string nextId; AudioInterop.Check(next.GetId(out nextId)); if (nextId != id) break;
+                                }
+                                finally { AudioInterop.Release(next); }
+                            }
+                            ulong current, counter; AudioInterop.Check(clock.GetPosition(out current, out counter));
+                            if (current != position) { position = current; lastProgress = Native.Now; }
+                            else if (Native.Now - lastProgress >= 750) break;
+                            if (completionTicket >= 0 && (double)position * PcmAudio.SampleRate / frequency >= completionFrame)
+                            { buffer.Complete(completionTicket); completionTicket = -1; }
                             uint padding; AudioInterop.Check(client.GetCurrentPadding(out padding));
                             uint count = capacity - Math.Min(capacity, padding);
                             if (count != 0)
@@ -82,22 +113,15 @@ namespace PointCursor
                                 long started = buffer.Fill(data, (int)count);
                                 Marshal.Copy(data, 0, destination, (int)count * 2);
                                 AudioInterop.Check(render.ReleaseBuffer(count, 0));
+                                submitted += count;
+                                if (buffer.Submitted && completionTicket != Generation)
+                                { completionTicket = Generation; completionFrame = submitted; }
                                 if (started >= 0)
                                 {
                                     Action<long, string> notify = null; string text = null;
                                     lock (sync) { if (started == Generation && started == ticket) { notify = Started; text = word; } }
                                     if (notify != null) notify(started, text);
                                 }
-                            }
-                            if (Native.Now - lastDeviceCheck > 1000)
-                            {
-                                lastDeviceCheck = Native.Now; AudioInterop.IMMDevice next = null;
-                                try
-                                {
-                                    AudioInterop.Check(enumerator.GetDefaultAudioEndpoint(0, 1, out next));
-                                    string nextId; AudioInterop.Check(next.GetId(out nextId)); if (nextId != id) break;
-                                }
-                                finally { AudioInterop.Release(next); }
                             }
                         }
                     }
@@ -110,7 +134,7 @@ namespace PointCursor
                     {
                         IsReady = false;
                         if (client != null) client.Stop();
-                        AudioInterop.Release(render); AudioInterop.Release(client); AudioInterop.Release(device); AudioInterop.Release(enumerator);
+                        AudioInterop.Release(clock); AudioInterop.Release(render); AudioInterop.Release(client); AudioInterop.Release(device); AudioInterop.Release(enumerator);
                     }
                 }
             }
@@ -169,6 +193,13 @@ namespace PointCursor
         {
             [PreserveSig] int GetBuffer(uint frames, out IntPtr data);
             [PreserveSig] int ReleaseBuffer(uint frames, uint flags);
+        }
+        [ComImport, Guid("CD63314F-3FBA-4A1B-812C-EF96358728E7"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        internal interface IAudioClock
+        {
+            [PreserveSig] int GetFrequency(out ulong frequency);
+            [PreserveSig] int GetPosition(out ulong position, out ulong counter);
+            [PreserveSig] int GetCharacteristics(out uint characteristics);
         }
     }
 }

@@ -4,7 +4,7 @@ using System.Text;
 
 namespace PointCursor
 {
-    // One format for both engines: mono, 24 kHz, signed 16-bit PCM. Never trim onsets.
+    // Mono, 24 kHz, signed 16-bit PCM. Never trim onsets.
     internal static class PcmAudio
     {
         public const int SampleRate = 24000;
@@ -52,6 +52,11 @@ namespace PointCursor
         private long generation;
         private bool announced;
         public long Generation { get { lock (sync) return generation; } }
+        public bool Submitted { get { lock (sync) return pcm != null && cursor == pcm.Length; } }
+        // Keep samples until the device clock confirms they actually played. A
+        // failed/stalled device can then reopen from sample zero without losing a word.
+        public void Complete(long ticket)
+        { lock (sync) { if (ticket == generation && pcm != null && cursor == pcm.Length) { pcm = null; cursor = 0; } } }
         public long Cancel() { lock (sync) { pcm = null; cursor = 0; announced = false; return ++generation; } }
         public void DeviceOpened(int frames) { lock (sync) { warmup = frames; cursor = 0; announced = false; } }
         public bool Set(long ticket, byte[] samples, int gain)
@@ -69,7 +74,7 @@ namespace PointCursor
             lock (sync)
             {
                 int at = Math.Min(warmup, frames); warmup -= at;
-                if (pcm == null || at == frames) return -1;
+                if (pcm == null || cursor == pcm.Length || at == frames) return -1;
                 long started = announced ? -1 : generation; announced = true;
                 int available = Math.Min((frames - at) * 2, pcm.Length - cursor);
                 if (volume == 100) Buffer.BlockCopy(pcm, cursor, target, at * 2, available);
@@ -80,7 +85,6 @@ namespace PointCursor
                     target[at * 2 + i] = (byte)value; target[at * 2 + i + 1] = (byte)(value >> 8);
                 }
                 cursor += available;
-                if (cursor == pcm.Length) { pcm = null; cursor = 0; }
                 return started;
             }
         }

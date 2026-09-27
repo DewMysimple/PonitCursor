@@ -14,6 +14,9 @@ namespace PointCursor
         public event Action ClipboardChanged;
         public event Action InputReady;
         public event Func<IntPtr> ActivateRequested;
+#if POINTCURSOR_QA
+        public event Action InputStallRequested;
+#endif
         public MessageWindow()
         {
             CreateHandle(new CreateParams { Caption = "PointCursor message receiver", Parent = new IntPtr(-3) });
@@ -52,6 +55,9 @@ namespace PointCursor
         }
         protected override void WndProc(ref Message message)
         {
+#if POINTCURSOR_QA
+            if (message.Msg == 0x8004 && InputStallRequested != null) InputStallRequested();
+#endif
             if (message.Msg == 0x31D && ClipboardChanged != null) ClipboardChanged();
             if (message.Msg == InputMonitor.NoticeMessage && InputReady != null) InputReady();
             if (message.Msg == ActivateMessage && ActivateRequested != null)
@@ -90,6 +96,9 @@ namespace PointCursor
         private string status = "准备好了，选中一个英文单词试试。";
 #if POINTCURSOR_QA
         private int qaPronunciations;
+        private readonly uint qaSource = ParseQaSource();
+        private static uint ParseQaSource()
+        { uint pid; UInt32.TryParse(Environment.GetEnvironmentVariable("POINTCURSOR_QA_SOURCE_PID"), out pid); return pid; }
 #endif
         private readonly uint processId = (uint)Process.GetCurrentProcess().Id;
         public TrayApp(bool quiet, string instanceName)
@@ -105,6 +114,9 @@ namespace PointCursor
             speech.Failed += delegate(string error) { ui.Post(delegate { if (!exiting) SetStatus(error); }, null); };
             speech.Started += delegate(long ticket, string word) { ui.Post(delegate { if (!exiting && ticket == speech.Generation) SetStatus(Pronounced(word)); }, null); };
             input = new InputMonitor(messages.Handle);
+#if POINTCURSOR_QA
+            messages.InputStallRequested += input.StallForTest;
+#endif
             // Start almost immediately. The reader can reconstruct the gesture range
             // from both mouse endpoints, so a later focus/caret change is no longer
             // allowed to erase an already completed selection intent.
@@ -130,7 +142,14 @@ namespace PointCursor
             messages.EnableActivation(instanceName);
             if (!quiet) ShowSettings();
         }
-        private bool Eligible(IntPtr window) { return window != IntPtr.Zero && Native.ProcessOf(window) != processId; }
+        private bool Eligible(IntPtr window)
+        {
+            uint pid = Native.ProcessOf(window);
+#if POINTCURSOR_QA
+            if (qaSource != 0 && pid != qaSource) return false;
+#endif
+            return window != IntPtr.Zero && pid != processId;
+        }
         private void Invalidate(bool stop)
         {
             selection.Invalidate(); selectionTimer.Stop(); pendingSelection = null;

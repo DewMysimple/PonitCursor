@@ -3,7 +3,7 @@ type: moc
 status: active
 kind: process
 importance: high
-updated: 2026-09-23
+updated: 2026-09-27
 topic: work-log-index
 source_logs: []
 supersedes: null
@@ -15,6 +15,7 @@ supersedes: null
 
 | 时间 | 类型 | 目标 | 状态 | 主题 | 日志 |
 | --- | --- | --- | --- | --- | --- |
+| 2026-09-27 | bug | - | archived | idle-selection-recovery-20260927 | [[日志/2026-09-27-修复后台闲置后划词失效.md|修复后台闲置后划词失效]] |
 | 2026-09-23 | feature | - | archived | english-system-voice-selection-delivery | [[日志/2026-09-23-添加美式与英式系统语音选择.md|添加美式与英式系统语音选择]] |
 | 2026-09-20 | maintenance | - | archived | single-instance-activation | [[日志/2026-09-20-重复启动直接唤醒设置窗口.md|重复启动直接唤醒设置窗口]] |
 | 2026-09-20 | maintenance | - | archived | zira-cleanup-selection-stability | [[日志/2026-09-20-收敛Zira语音并修复输入与取词稳定性.md|收敛 Zira 语音并修复输入与取词稳定性]] |

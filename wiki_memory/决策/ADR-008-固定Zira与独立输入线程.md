@@ -3,9 +3,10 @@ type: decision
 status: superseded
 kind: architecture
 importance: high
-updated: 2026-09-23
+updated: 2026-09-27
 topic: zira-only-and-isolated-input
 source_logs:
+  - "[[日志/2026-09-27-修复后台闲置后划词失效]]"
   - "[[日志/2026-09-20-收敛Zira语音并修复输入与取词稳定性]]"
 supersedes:
   - "[[决策/ADR-004-内置Kokoro离线语音后端]]"
@@ -13,7 +14,7 @@ supersedes:
 
 # ADR-008｜固定 Zira 与独立输入线程
 
-语音范围已由 [[决策/ADR-009-限定美式与英式系统语音]] 替代；该后续决策继续保留本页的独立输入线程、手势快照、Reader 生命周期与轻量依赖原则。以下保留原始决策。
+语音范围已由 [[决策/ADR-009-限定美式与英式系统语音]] 替代；鼠标监听进一步由 [[决策/ADR-010-后台鼠标监听与音频恢复]] 改为 Raw Input。独立输入线程、手势快照、Reader 生命周期与轻量依赖原则继续保留。以下保留原始决策。
 
 用户明确只保留 Microsoft Zira Desktop，并要求改善双击稳定性和可维护性。
 

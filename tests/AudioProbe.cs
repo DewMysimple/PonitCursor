@@ -24,7 +24,7 @@ namespace PointCursor
             {
                 string prefix = args[0]; Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(prefix)));
                 byte[] pcm;
-                if (args.Length > 1) pcm = PcmAudio.ReadWave(args[1]);
+                if (args.Length > 1 && !args[1].StartsWith("--")) pcm = PcmAudio.ReadWave(args[1]);
                 else using (var synth = new SpeechSynthesizer()) using (var stream = new MemoryStream())
                 {
                     synth.SelectVoice("Microsoft Zira Desktop"); synth.Volume = 100;
@@ -44,6 +44,18 @@ namespace PointCursor
                     string failure = null;
                     output.Failed += delegate(string error) { failure = error; };
                     output.Started += delegate { Console.WriteLine("Started"); };
+                    output.Prepare();
+                    long preparing = Environment.TickCount;
+                    while (!output.IsReady && unchecked(Environment.TickCount - preparing) < 5000) Thread.Sleep(10);
+                    if (!output.IsReady) throw new Exception("Output did not open.");
+                    int idle = Array.IndexOf(args, "--idle-seconds");
+                    if (idle >= 0)
+                    {
+                        int seconds = Int32.Parse(args[idle + 1]);
+                        Console.WriteLine("Output idle for " + seconds + " seconds; capture has not started.");
+                        Thread.Sleep(seconds * 1000);
+                    }
+                    if (Array.IndexOf(args, "--stall") >= 0) output.StallForTest();
                     AudioInterop.Check(client.Start());
                     output.Play(output.Stop(), "English", pcm, 100);
                     long start = Environment.TickCount; bool replayed = false;

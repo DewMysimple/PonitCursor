@@ -45,7 +45,7 @@ if ($Test) {
     foreach ($binary in @('PointCursor.exe','PointCursor.exe.config','PointCursor.Core.dll','PointCursor.Reader.exe','PointCursor.Reader.exe.config')) { Copy-Item -LiteralPath (Join-Path $out $binary) -Destination $testOut -Force }
     Compile (@('/target:winexe','/define:POINTCURSOR_QA',('/out:' + (Join-Path $testOut 'PointCursor.exe')),('/win32manifest:' + (Join-Path $root 'app.manifest')),('/r:' + $core)) + $desktop + $app)
     Compile (@('/target:winexe',('/out:' + (Join-Path $testOut 'PointCursor.Fixture.exe')),(Join-Path $root 'tests\Fixture.cs')) + $desktop)
-    Compile (@('/target:exe',('/out:' + (Join-Path $testOut 'PointCursor.AudioProbe.exe')),('/r:' + $core),(Join-Path $root 'tests\AudioProbe.cs'),$native,(Join-Path $root 'src\PcmAudio.cs'),(Join-Path $root 'src\AudioOutput.cs')) + $desktop)
+    Compile (@('/target:exe','/define:POINTCURSOR_QA',('/out:' + (Join-Path $testOut 'PointCursor.AudioProbe.exe')),('/r:' + $core),(Join-Path $root 'tests\AudioProbe.cs'),$native,(Join-Path $root 'src\PcmAudio.cs'),(Join-Path $root 'src\AudioOutput.cs')) + $desktop)
     RemoveLegacyRuntime $testOut
     Compile (@('/target:exe',('/out:' + (Join-Path $testOut 'PointCursor.Tests.exe')),('/r:' + $core),(Join-Path $root 'tests\Tests.cs'),$native,(Join-Path $root 'src\SelectionClient.cs'),(Join-Path $root 'src\InputMonitor.cs'),(Join-Path $root 'src\SpeechService.cs'),(Join-Path $root 'src\SettingsForm.cs')) + $desktop + $audio)
     & (Join-Path $testOut 'PointCursor.Tests.exe')

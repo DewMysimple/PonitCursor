@@ -172,7 +172,11 @@ namespace PointCursor
             if (pid == 0) return "stale|";
             // Chromium exposes its document directly through IA2. Avoid spending the
             // request budget walking UIA wrappers that have no TextPattern.
-            if (isForeground && LegacySelection.ProtectedFocus(window)) return "blocked|";
+            if (isForeground)
+            {
+                string protection = LegacySelection.ReadFocusProtection(window);
+                if (protection != "safe|") return protection;
+            }
             IntPtr renderer = guardOnly ? IntPtr.Zero : LegacySelection.RendererAtPoint(window, endX, endY);
             if (renderer != IntPtr.Zero)
             {

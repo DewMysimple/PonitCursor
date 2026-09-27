@@ -16,17 +16,17 @@ namespace PointCursor
         public long Time;
     }
 
-    // Hooks own a dedicated message loop. Disk I/O, UI rendering and worker startup
-    // must never delay it: Windows silently removes a low-level hook on timeout.
+    // Raw mouse input is queued, unlike a low-level hook which Windows can silently
+    // remove after a timeout. Keep this message loop independent of the UI/providers.
     internal sealed class InputMonitor : IDisposable
     {
         public const int NoticeMessage = 0x8001;
         private readonly IntPtr receiver;
         private readonly object sync = new object();
-        private readonly Native.HookProc mouseCallback, keyCallback;
+        private readonly Native.HookProc keyCallback;
         private readonly Thread thread;
         private readonly SelectionGesture gesture;
-        private IntPtr mouseHook, keyHook;
+        private IntPtr keyHook;
         private uint threadId;
         private InputNotice pending;
         private bool cDown;
@@ -35,22 +35,27 @@ namespace PointCursor
         public InputMonitor(IntPtr receiver)
         {
             this.receiver = receiver;
-            mouseCallback = Mouse; keyCallback = Keyboard;
+            keyCallback = Keyboard;
             gesture = new SelectionGesture(SystemInformation.DragSize.Width / 2, SystemInformation.DragSize.Height / 2,
                 SystemInformation.DoubleClickSize.Width / 2, SystemInformation.DoubleClickSize.Height / 2, Native.GetDoubleClickTime());
             Exception failure = null;
             using (var ready = new ManualResetEvent(false))
             {
                 thread = new Thread(delegate() {
+                    MouseWindow window = null;
+                    System.Windows.Forms.Timer renew = null;
                     try
                     {
                         threadId = Native.GetCurrentThreadId();
                         Native.Message message;
                         Native.PeekMessage(out message, IntPtr.Zero, 0, 0, 0); // Create the queue before signalling ready.
-                        IntPtr module = Native.GetModuleHandle(null);
-                        mouseHook = Native.SetWindowsHookEx(14, mouseCallback, module, 0);
-                        keyHook = Native.SetWindowsHookEx(13, keyCallback, module, 0);
-                        if (mouseHook == IntPtr.Zero || keyHook == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
+                        window = new MouseWindow(Mouse);
+                        RenewKeyboard();
+                        if (keyHook == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
+                        // Ctrl+C must capture the sequence BEFORE the destination copies.
+                        // Keep that tiny pre-dispatch hook, and renew its registration.
+                        renew = new System.Windows.Forms.Timer { Interval = 30000 };
+                        renew.Tick += delegate { RenewKeyboard(); }; renew.Start();
                     }
                     catch (Exception ex) { failure = ex; }
                     finally { ready.Set(); }
@@ -59,12 +64,18 @@ namespace PointCursor
                         if (failure != null) return;
                         Native.Message message;
                         while (Native.GetMessage(out message, IntPtr.Zero, 0, 0) > 0)
-                        { Native.TranslateMessage(ref message); Native.DispatchMessage(ref message); }
+                        {
+#if POINTCURSOR_QA
+                            if (message.Id == 0x8004) { Thread.Sleep(1500); continue; }
+#endif
+                            Native.TranslateMessage(ref message); Native.DispatchMessage(ref message);
+                        }
                     }
                     finally
                     {
-                        if (mouseHook != IntPtr.Zero) Native.UnhookWindowsHookEx(mouseHook);
+                        if (renew != null) renew.Dispose();
                         if (keyHook != IntPtr.Zero) Native.UnhookWindowsHookEx(keyHook);
+                        if (window != null) window.Dispose();
                     }
                 }) { IsBackground = true, Name = "PointCursor input" };
                 thread.SetApartmentState(ApartmentState.STA);
@@ -82,29 +93,65 @@ namespace PointCursor
         public bool TryTake(out InputNotice notice)
         { lock (sync) { notice = pending; pending = null; return notice != null; } }
 
-        private IntPtr Mouse(int code, IntPtr message, IntPtr data)
+        private void RenewKeyboard()
         {
-            if (code >= 0 && !disposed)
+            IntPtr next = Native.SetWindowsHookEx(13, keyCallback, Native.GetModuleHandle(null), 0);
+            if (next == IntPtr.Zero) return;
+            if (keyHook != IntPtr.Zero) Native.UnhookWindowsHookEx(keyHook);
+            keyHook = next;
+            cDown = Native.GetAsyncKeyState(0x43) < 0;
+        }
+        private void Mouse(uint buttons, Native.Point point, uint time)
+        {
+            if (disposed) return;
+            // After a session/thread stall the old coordinates may now belong to
+            // a different window. Discard that backlog; accept the next fresh gesture.
+            if (unchecked((uint)Native.Now - time) > 500) { gesture.Reset(); return; }
+            if ((buttons & 0xFFFC) != 0) { gesture.Reset(); return; }
+            if ((buttons & 1) != 0)
+                gesture.Down(Native.GetAncestor(Native.WindowFromPoint(point), 2), point.X, point.Y, time);
+            gesture.Move(point.X, point.Y);
+            if ((buttons & 2) != 0)
             {
-                int type = message.ToInt32();
-                if (type == 0x201 || type == 0x202 || type == 0x200)
+                GestureKind kind = gesture.Up(point.X, point.Y);
+                if (kind != GestureKind.None)
+                    Send(new InputNotice { Kind = "selection", Gesture = kind, Window = gesture.Window,
+                        StartX = gesture.StartX, StartY = gesture.StartY, X = point.X, Y = point.Y, Time = Native.Now });
+            }
+        }
+#if POINTCURSOR_QA
+        public void StallForTest() { Native.PostThreadMessage(threadId, 0x8004, UIntPtr.Zero, IntPtr.Zero); }
+#endif
+        private sealed class MouseWindow : NativeWindow, IDisposable
+        {
+            private readonly Action<uint, Native.Point, uint> receive;
+            public MouseWindow(Action<uint, Native.Point, uint> receive)
+            {
+                this.receive = receive;
+                CreateHandle(new CreateParams { Caption = "PointCursor raw mouse", Parent = new IntPtr(-3) });
+                if (!Register(0x100, Handle)) { DestroyHandle(); throw new Win32Exception(Marshal.GetLastWin32Error()); }
+            }
+            private static bool Register(uint flags, IntPtr target)
+            {
+                return Native.RegisterRawInputDevices(new[] { new Native.RawInputDevice { Page = 1, Usage = 2, Flags = flags, Target = target } },
+                    1, (uint)Marshal.SizeOf(typeof(Native.RawInputDevice)));
+            }
+            protected override void WndProc(ref Message message)
+            {
+                if (message.Msg == 0xFF)
                 {
-                    var value = (Native.MouseData)Marshal.PtrToStructure(data, typeof(Native.MouseData));
-                    if (type == 0x201) gesture.Down(Native.GetAncestor(Native.WindowFromPoint(value.Point), 2), value.Point.X, value.Point.Y, value.Time);
-                    else if (type == 0x200) gesture.Move(value.Point.X, value.Point.Y);
-                    else
+                    Native.RawMouseInput input; uint size = (uint)Marshal.SizeOf(typeof(Native.RawMouseInput));
+                    uint read = Native.GetRawInputData(message.LParam, 0x10000003, out input, ref size, 24);
+                    if (read == size && input.Type == 0)
                     {
-                        // Foreground may already have changed after the physical release.
-                        GestureKind kind = gesture.Up(value.Point.X, value.Point.Y);
-                        if (kind != GestureKind.None)
-                            Send(new InputNotice { Kind = "selection", Gesture = kind, Window = gesture.Window,
-                                StartX = gesture.StartX, StartY = gesture.StartY, X = value.Point.X, Y = value.Point.Y,
-                                Time = Native.Now });
+                        uint point = Native.GetMessagePos();
+                        receive(input.Buttons & 0xFFFF, new Native.Point { X = (short)point, Y = (short)(point >> 16) }, Native.GetMessageTime());
                     }
                 }
-                else if (type == 0x204 || type == 0x207 || type == 0x20A) gesture.Reset();
+                // DefWindowProc must release the Windows raw input packet.
+                base.WndProc(ref message);
             }
-            return Native.CallNextHookEx(mouseHook, code, message, data);
+            public void Dispose() { Register(1, IntPtr.Zero); DestroyHandle(); }
         }
         private IntPtr Keyboard(int code, IntPtr message, IntPtr data)
         {

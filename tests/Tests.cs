@@ -218,10 +218,18 @@ namespace PointCursor
             var rest = new byte[8]; buffer.Fill(rest, 4);
             Check(rest.SequenceEqual(new byte[] { 2, 0, 255, 127, 0, 128, 0, 0 }), "PCM tail preserved across device buffers");
             Check(buffer.Fill(rest, 4) == -1 && rest.All(b => b == 0), "idle renderer outputs silence");
+            Check(buffer.Submitted, "submitted PCM is retained until device confirms playback");
+            buffer.DeviceOpened(0); buffer.Fill(rest, 4);
+            Check(rest.SequenceEqual(source), "unconfirmed word replays from sample zero after device loss");
+            buffer.Complete(ticket); buffer.DeviceOpened(0); buffer.Fill(rest, 4);
+            Check(rest.All(b => b == 0), "completed word is never replayed by a later device reopen");
             long latest = buffer.Cancel();
             Check(!buffer.Set(ticket, source, 100), "stale PCM cannot replace newest audio");
             buffer.Set(latest, source, 100); buffer.Fill(first, 1); buffer.Cancel(); buffer.Fill(rest, 4);
             Check(rest.All(b => b == 0), "cancellation clears remaining audio");
+            latest = buffer.Generation; buffer.Set(latest, source, 100); buffer.Fill(rest, 4);
+            buffer.Complete(ticket); buffer.DeviceOpened(0); buffer.Fill(rest, 4);
+            Check(rest.SequenceEqual(source), "stale device completion cannot erase a newer word");
         }
         private static async Task Worker()
         {

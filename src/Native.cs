@@ -9,8 +9,16 @@ namespace PointCursor
         [StructLayout(LayoutKind.Sequential)] public struct Message
         { public IntPtr Window; public uint Id; public UIntPtr WParam; public IntPtr LParam; public uint Time; public Point Point; public uint Private; }
         [StructLayout(LayoutKind.Sequential)] public struct Point { public int X, Y; }
-        [StructLayout(LayoutKind.Sequential)] public struct MouseData { public Point Point; public uint Mouse, Flags, Time; public UIntPtr Extra; }
         [StructLayout(LayoutKind.Sequential)] public struct KeyData { public uint Key, Scan, Flags, Time; public UIntPtr Extra; }
+        [StructLayout(LayoutKind.Sequential)] public struct RawInputDevice
+        { public ushort Page, Usage; public uint Flags; public IntPtr Target; }
+        // x64 RAWINPUTHEADER (24 bytes) followed by RAWMOUSE (24 bytes).
+        [StructLayout(LayoutKind.Sequential)] public struct RawMouseInput
+        { public uint Type, Size; public IntPtr Device, Parameter; public ushort Flags; public uint Buttons, RawButtons; public int X, Y; public uint Extra; }
+        [DllImport("user32.dll", SetLastError = true)] public static extern bool RegisterRawInputDevices(RawInputDevice[] devices, uint count, uint size);
+        [DllImport("user32.dll")] public static extern uint GetRawInputData(IntPtr input, uint command, out RawMouseInput data, ref uint size, uint headerSize);
+        [DllImport("user32.dll")] public static extern uint GetMessagePos();
+        [DllImport("user32.dll")] public static extern uint GetMessageTime();
         [DllImport("user32.dll", SetLastError = true)] public static extern IntPtr SetWindowsHookEx(int type, HookProc callback, IntPtr module, uint thread);
         [DllImport("user32.dll")] public static extern bool UnhookWindowsHookEx(IntPtr hook);
         [DllImport("user32.dll")] public static extern IntPtr CallNextHookEx(IntPtr hook, int code, IntPtr message, IntPtr data);

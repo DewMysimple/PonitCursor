@@ -79,7 +79,7 @@ namespace PointCursor
             }
             return false;
         }
-        public static bool ProtectedFocus(IntPtr window)
+        public static string ReadFocusProtection(IntPtr window)
         {
             try
             {
@@ -109,10 +109,12 @@ namespace PointCursor
                     }
                     return !blocked && ++scanned < 64;
                 }, IntPtr.Zero);
-                return blocked;
+                return blocked ? "blocked|" : "safe|";
             }
-            catch (COMException) { return true; }
-            catch (ArgumentException) { return true; }
+            // A cold/stale accessibility provider is not evidence of a password.
+            // Still fail closed, but allow the reader's bounded retry to check again.
+            catch (COMException) { return "unavailable|"; }
+            catch (ArgumentException) { return "unavailable|"; }
         }
         private static bool ParentSelectionMatches(IAccessible accessible, uint pid, string word)
         {

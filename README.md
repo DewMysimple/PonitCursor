@@ -63,14 +63,16 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\build.ps1 -Test -Package
 
 | 模块 | 职责 |
 | --- | --- |
-| `InputMonitor` / `SelectionGesture` | 专用消息线程监听输入；独立状态机识别双击和拖选，按事件时间计时，仅保留最新完成手势 |
+| `InputMonitor` / `SelectionGesture` | 专用消息线程用 Raw Input 接收后台鼠标事件；独立状态机识别双击和拖选，按事件时间计时，仅保留最新完成手势 |
 | `SelectionClient` | 后台启动及串行访问辅助进程，约 900ms 读取超时；取消、崩溃、坏响应后自动重建 |
 | `SelectionReader` / `LegacySelection` | Chromium/Electron 优先 IA2，其余 UIA；以来源窗口和手势类型读取真实选区或重建范围，分别检查密码与进程边界 |
 | `Core` | 单词过滤、请求代次、复制门控和设置 |
 | `VoiceCatalog` / `SpeechService` / `SapiSpeechEngine` | 筛选美式/英式语音、恢复选择、后台合成为内存 PCM；请求保存声音快照，新请求取消旧请求 |
-| `AudioOutput` / `PcmAudio` | WASAPI 播放完整采样；设备首次打开有 150ms 静音准备，普通词不附加此延迟 |
+| `AudioOutput` / `PcmAudio` | WASAPI 播放完整采样；检测设备时钟停滞并重开，保留尚未播放完的 PCM；设备打开有 150ms 静音准备，普通词不附加此延迟 |
 | `App` / `SettingsForm` | 托盘、界面和事件编排 |
 
-双击类型随请求传递，读取器不再用“坐标相差不超过 1 像素”猜测双击。来源窗口在鼠标按下时锁定，避免松开后立即切窗的竞态。输入钩子不承担界面、磁盘、合成或进程操作；无结果只做有限重试，仍受辅助进程超时约束。
+双击类型随请求传递，读取器不再用“坐标相差不超过 1 像素”猜测双击。来源窗口在处理鼠标按下事件时锁定，避免松开后立即切窗的竞态。鼠标监听不依赖会被 Windows 静默移除的低级钩子；超过 500ms 的积压输入丢弃，避免恢复后误读旧坐标处的其他窗口，下一次新手势继续生效。Ctrl+C 单独保留轻量键盘钩子，在目标程序复制前取得剪贴板序列号，并每 30 秒更新注册。
 
-接口参考：[Windows 低级鼠标钩子](https://learn.microsoft.com/en-us/windows/win32/winmsg/lowlevelmouseproc)、[UI Automation](https://learn.microsoft.com/en-us/dotnet/api/system.windows.automation.textpattern.getselection)、[IAccessible2](https://accessibility.linuxfoundation.org/a11yspecs/ia2/docs/html/interface_i_accessible_text.html)。
+输入线程不承担界面、磁盘、合成或进程操作；Obsidian 辅助功能的临时错误与确认的密码控件分别处理，临时错误允许原有的有限重试，仍受约 900ms 的辅助进程超时约束，密码控件继续跳过。音频时钟停滞 750ms 会重开设备，完成的单词不会在设备重开时重复播放。
+
+接口参考：[Windows Raw Input](https://learn.microsoft.com/en-us/windows/win32/inputdev/about-raw-input)、[低级鼠标钩子的超时限制](https://learn.microsoft.com/en-us/windows/win32/winmsg/lowlevelmouseproc)、[UI Automation](https://learn.microsoft.com/en-us/dotnet/api/system.windows.automation.textpattern.getselection)、[IAccessible2](https://accessibility.linuxfoundation.org/a11yspecs/ia2/docs/html/interface_i_accessible_text.html)。

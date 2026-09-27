@@ -16,6 +16,8 @@ u.SetProcessDPIAware()
 k = C.WinDLL("kernel32", use_last_error=True)
 CALLBACK = C.WINFUNCTYPE(W.BOOL, W.HWND, W.LPARAM)
 u.GetForegroundWindow.restype = W.HWND
+u.FindWindowExW.argtypes = [W.HWND, W.HWND, W.LPCWSTR, W.LPCWSTR]
+u.FindWindowExW.restype = W.HWND
 u.SendMessageW.argtypes = [W.HWND, W.UINT, W.WPARAM, W.LPARAM]
 u.SendMessageW.restype = W.LPARAM
 u.PostMessageW.argtypes = [W.HWND, W.UINT, W.WPARAM, W.LPARAM]
@@ -56,6 +58,14 @@ def window_for(pid, include_hidden=False):
         value = W.DWORD(); u.GetWindowThreadProcessId(hwnd, C.byref(value))
         if value.value == pid and (u.IsWindowVisible(hwnd) or (include_hidden and cls(hwnd).startswith("WindowsForms"))) and text(hwnd): return hwnd
 
+def receiver_for(pid):
+    hwnd = None
+    while True:
+        hwnd = u.FindWindowExW(W.HWND(-3), hwnd, None, None)
+        if not hwnd: return None
+        owner = W.DWORD(); u.GetWindowThreadProcessId(hwnd, C.byref(owner))
+        if owner.value == pid and text(hwnd).startswith("Local\\PointCursor-QA-"): return hwnd
+
 def wait(fn, seconds=5):
     until = time.monotonic() + seconds
     while time.monotonic() < until:
@@ -73,6 +83,8 @@ def foreground(hwnd):
     key(0x12); key(0x12, True)
     u.SetForegroundWindow(hwnd)
     wait(lambda: u.GetForegroundWindow() == hwnd)
+    # The synthetic Alt used to grant focus can leave a native menu active.
+    key(0x1B); key(0x1B, True)
 
 def click(x, y, twice=False):
     u.SetCursorPos(int(x), int(y))
@@ -136,6 +148,7 @@ def restore_clipboard(snapshot, sequence, owner):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--stress', type=int, default=0)
+    parser.add_argument('--input-stall', action='store_true', help='Stall the input thread, then verify the first fresh gesture')
     parser.add_argument('--copy', action='store_true', help='Opt in to clipboard interaction on synthetic text')
     args = parser.parse_args()
     previous = u.GetForegroundWindow(); cursor = W.POINT(); u.GetCursorPos(C.byref(cursor))
@@ -201,7 +214,18 @@ def main():
             u.PostMessageW(aw, 0x8002, 0, 0); time.sleep(.1)
             click(x, y, True)
             wait(lambda: pronunciation_count(aw, "hello") > before, 5)
-        check("hooks survive repeated 1.5 second UI stalls", True)
+        check("input survives repeated 1.5 second UI stalls", True)
+        if args.input_stall:
+            for attempt in range(2):
+                time.sleep(.6)
+                before = pronunciation_count(aw, "hello")
+                u.SendMessageW(receiver_for(app.pid), 0x8004, 0, 0); time.sleep(.1)
+                click(x, y, True)
+                time.sleep(1.7)
+                check("expired queued gesture is discarded after input stall", pronunciation_count(aw, "hello") == before)
+                before = pronunciation_count(aw, "hello"); click(x, y, True)
+                wait(lambda: pronunciation_count(aw, "hello") > before, 3)
+            check("first fresh gesture works after each input-thread stall", True)
         latencies = []
         for index in range(args.stress):
             word = "world" if index % 2 == 0 else "hello"
@@ -248,6 +272,8 @@ def main():
     except Exception:
         print("DIAGNOSTIC:", status(aw) if app else [], "foreground", text(u.GetForegroundWindow()), flush=True)
         if fixture and fw:
+            pt = W.POINT(); u.GetCursorPos(C.byref(pt))
+            print("POINTER:", pt.x, pt.y, "expected", x, y, "hit", cls(u.WindowFromPoint(W.POINT(int(x), int(y)))) , flush=True)
             print("FIXTURE:", [(cls(h), text(h)[:80], u.SendMessageW(h, 0xB0, 0, 0) if 'RichEdit' in cls(h) else 0) for h in windows(fw)], flush=True)
         raise
     finally:
